@@ -31,11 +31,11 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith("/api/users") ||
     pathname.startsWith("/api/subscriptions") ||
-    pathname === "/api/stripe/checkout" ||
-    pathname === "/api/stripe/portal"
+    pathname.startsWith("/api/stripe/checkout") ||
+    pathname.startsWith("/api/stripe/portal")
   ) {
     if (!token) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.next();
   }
