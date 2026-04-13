@@ -1,6 +1,19 @@
 import { Resend } from "resend";
 
-export const resend = new Resend(process.env.RESEND_API_KEY);
+let _resend: Resend | null = null;
+function getResend(): Resend {
+  if (!_resend) {
+    _resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return _resend;
+}
+
+/** @deprecated use the functions below instead */
+export const resend = {
+  get emails() {
+    return getResend().emails;
+  },
+};
 
 function escapeHtml(str: string): string {
   return str
