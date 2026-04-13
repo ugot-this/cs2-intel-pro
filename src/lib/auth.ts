@@ -4,11 +4,12 @@ import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { compare } from "bcryptjs";
 import { prisma } from "./db";
+import { createFreeSubscription } from "./auth-helpers";
 import type { PlanSlug } from "@/types";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
-  session: { strategy: "jwt" },
+  session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
   pages: {
     signIn: "/login",
     error: "/login",
@@ -28,7 +29,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!credentials?.email || !credentials?.password) return null;
 
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email as string },
+          where: { email: (credentials.email as string).toLowerCase() },
         });
 
         if (!user?.passwordHash) return null;
@@ -65,10 +66,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async session({ session, token }) {
       if (session.user && token) {
-        const u = session.user as unknown as Record<string, unknown>;
-        u.userId = token.userId;
-        u.role = token.role;
-        u.planSlug = token.planSlug;
+        session.user.userId = token.userId as string;
+        session.user.role = token.role as "USER" | "ADMIN";
+        session.user.planSlug = token.planSlug as PlanSlug;
       }
       return session;
     },
@@ -76,19 +76,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   events: {
     async createUser({ user }) {
       if (!user.id) return;
-      const freePlan = await prisma.subscriptionPlan.findUnique({
-        where: { slug: "free" },
-      });
-      if (freePlan) {
-        await prisma.subscription.create({
-          data: {
-            userId: user.id,
-            planId: freePlan.id,
-            status: "ACTIVE",
-            currentPeriodEnd: new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000),
-          },
-        });
-      }
+      await createFreeSubscription(user.id);
     },
   },
 });

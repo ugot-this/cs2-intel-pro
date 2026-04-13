@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { hash } from "bcryptjs";
 import { prisma } from "@/lib/db";
-import { validateRegistration } from "@/lib/auth-helpers";
+import { validateRegistration, createFreeSubscription } from "@/lib/auth-helpers";
 import { sendWelcomeEmail } from "@/lib/email";
 
 export async function POST(req: Request) {
@@ -35,20 +35,7 @@ export async function POST(req: Request) {
       },
     });
 
-    const freePlan = await prisma.subscriptionPlan.findUnique({
-      where: { slug: "free" },
-    });
-
-    if (freePlan) {
-      await prisma.subscription.create({
-        data: {
-          userId: user.id,
-          planId: freePlan.id,
-          status: "ACTIVE",
-          currentPeriodEnd: new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000),
-        },
-      });
-    }
+    await createFreeSubscription(user.id);
 
     sendWelcomeEmail(user.email, user.name || "").catch(console.error);
 
