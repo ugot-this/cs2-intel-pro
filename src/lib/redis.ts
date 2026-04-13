@@ -8,7 +8,7 @@ export const redis = new Redis({
 
 export const authRateLimit = new Ratelimit({
   redis,
-  limiter: Ratelimit.slidingWindow(10, "60 s"),
+  limiter: Ratelimit.slidingWindow(5, "15 m"),
   analytics: true,
   prefix: "ratelimit:auth",
 });

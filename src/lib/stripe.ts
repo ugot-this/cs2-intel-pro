@@ -19,7 +19,10 @@ export async function createCheckoutSession(
     cancel_url: `${process.env.NEXTAUTH_URL}/pricing?checkout=canceled`,
     metadata: { userId },
   });
-  return session.url!;
+  if (!session.url) {
+    throw new Error("Stripe checkout session URL was not returned");
+  }
+  return session.url;
 }
 
 export async function createPortalSession(customerId: string): Promise<string> {

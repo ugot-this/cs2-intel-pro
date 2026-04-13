@@ -8,15 +8,15 @@ export type UserWithSubscription = User & {
     | null;
 };
 
+export type PlanSlug = "free" | "pro" | "vip";
+
 export type SessionUser = {
   userId: string;
   email: string;
   name: string | null;
   role: "USER" | "ADMIN";
-  planSlug: string;
+  planSlug: PlanSlug;
 };
-
-export type PlanFeature = string;
 
 export type ApiResponse<T = unknown> =
   | { success: true; data: T }

@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 
 export async function logAdminAction(
@@ -5,13 +6,17 @@ export async function logAdminAction(
   action: string,
   target?: string,
   details?: Record<string, unknown>
-) {
-  await prisma.adminLog.create({
-    data: {
-      adminId,
-      action,
-      target,
-      details: details ? (details as object) : undefined,
-    },
-  });
+): Promise<void> {
+  try {
+    await prisma.adminLog.create({
+      data: {
+        adminId,
+        action,
+        target,
+        details: details as Prisma.InputJsonValue ?? undefined,
+      },
+    });
+  } catch (err) {
+    console.error("[admin-log] Failed to write audit log:", err);
+  }
 }
