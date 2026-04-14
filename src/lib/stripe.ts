@@ -1,8 +1,27 @@
 import Stripe from "stripe";
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2026-03-25.dahlia",
-  typescript: true,
+// Lazy singleton — initialized only on first real request, not at build time.
+// This prevents "Neither apiKey nor config.authenticator provided" during `next build`.
+let _stripe: Stripe | null = null;
+
+function getStripe(): Stripe {
+  if (!_stripe) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) throw new Error("STRIPE_SECRET_KEY is not configured");
+    _stripe = new Stripe(key, {
+      apiVersion: "2026-03-25.dahlia",
+      typescript: true,
+    });
+  }
+  return _stripe;
+}
+
+export const stripe = new Proxy({} as Stripe, {
+  get(_target, prop: string | symbol) {
+    const instance = getStripe();
+    const value = instance[prop as keyof Stripe];
+    return typeof value === "function" ? (value as Function).bind(instance) : value;
+  },
 });
 
 export async function createCheckoutSession(
