@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { auth } from "./auth";
 import { prisma } from "./db";
 import type { SessionUser } from "@/types";
@@ -43,12 +44,13 @@ export async function getSession(): Promise<SessionUser | null> {
 
 export async function requireAuth(): Promise<SessionUser> {
   const session = await getSession();
-  if (!session) throw new Error("Unauthorized");
+  if (!session) redirect("/login");
   return session;
 }
 
 export async function requireAdmin(): Promise<SessionUser> {
-  const session = await requireAuth();
-  if (session.role !== "ADMIN") throw new Error("Forbidden");
+  const session = await getSession();
+  if (!session) redirect("/login");
+  if (session.role !== "ADMIN") redirect("/dashboard");
   return session;
 }
