@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ invoiceId: string }> }
 ) {
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.userId) {
     return NextResponse.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
   }
 
@@ -19,7 +19,7 @@ export async function GET(
     select: { paid: true, userId: true, expiresAt: true },
   });
 
-  if (!invoice || invoice.userId !== session.user.id) {
+  if (!invoice || invoice.userId !== session.user.userId) {
     return NextResponse.json({ error: "Invoice олдсонгүй" }, { status: 404 });
   }
 

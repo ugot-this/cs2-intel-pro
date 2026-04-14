@@ -15,7 +15,7 @@ const MNT_PRICES: Record<string, number> = {
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.userId) {
     return NextResponse.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
   }
 
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
   // Invoice-г DB-д хадгалах
   await prisma.qpayInvoice.create({
     data: {
-      userId: session.user.id,
+      userId: session.user.userId,
       planId: plan.id,
       invoiceId: invoice.invoiceId,
       orderId,
