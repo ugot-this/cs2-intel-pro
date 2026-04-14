@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card } from "@/components/ui/card";
 import Link from "next/link";

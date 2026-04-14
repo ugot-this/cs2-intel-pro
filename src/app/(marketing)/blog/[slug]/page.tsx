@@ -4,6 +4,8 @@ import Image from "next/image";
 import { prisma } from "@/lib/db";
 import { PostContent } from "@/components/blog/post-content";
 
+export const dynamic = "force-dynamic";
+
 export async function generateMetadata({
   params,
 }: {

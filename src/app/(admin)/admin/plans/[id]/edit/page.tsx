@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { PlanEditForm } from "./edit-form";
 
+export const dynamic = "force-dynamic";
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const plan = await prisma.subscriptionPlan.findUnique({ where: { id }, select: { name: true } });

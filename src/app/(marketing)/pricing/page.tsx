@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { PricingPageClient } from "./client";
 
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Pricing" };
 
 export default async function PricingPage() {
