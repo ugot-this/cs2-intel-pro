@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 
-export default function ResetPasswordConfirmPage() {
+function ResetConfirmInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
@@ -113,5 +113,13 @@ export default function ResetPasswordConfirmPage() {
         </Link>
       </CardFooter>
     </Card>
+  );
+}
+
+export default function ResetPasswordConfirmPage() {
+  return (
+    <Suspense fallback={null}>
+      <ResetConfirmInner />
+    </Suspense>
   );
 }
