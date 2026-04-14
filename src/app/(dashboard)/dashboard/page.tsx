@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAuth } from "@/lib/auth-helpers";
-
-export const dynamic = "force-dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,9 +14,8 @@ import {
   Clock,
 } from "lucide-react";
 
-export const metadata: Metadata = {
-  title: "Dashboard",
-};
+export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const user = await requireAuth();
@@ -108,10 +105,20 @@ export default async function DashboardPage() {
           Quick Actions
         </h2>
         <div className="flex flex-wrap gap-3">
-          <Button render={<Link href="/dashboard/predictions"><TrendingUp className="h-4 w-4" />View Predictions<ArrowRight className="h-4 w-4" /></Link>} variant="default" className="gap-2" />
-          <Button render={<Link href="/dashboard/teams"><Users className="h-4 w-4" />Team Stats</Link>} variant="outline" className="gap-2 border-border hover:border-primary hover:text-primary" />
+          <Button render={<Link href="/dashboard/predictions" />} variant="default" className="gap-2">
+            <TrendingUp className="h-4 w-4" />
+            View Predictions
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+          <Button render={<Link href="/dashboard/teams" />} variant="outline" className="gap-2 border-border hover:border-primary hover:text-primary">
+            <Users className="h-4 w-4" />
+            Team Stats
+          </Button>
           {user.planSlug !== "vip" && (
-            <Button render={<Link href="/dashboard/settings"><Zap className="h-4 w-4" />Upgrade Plan</Link>} variant="outline" className="gap-2 border-primary/50 text-primary hover:bg-primary/10" />
+            <Button render={<Link href="/pricing" />} variant="outline" className="gap-2 border-primary/50 text-primary hover:bg-primary/10">
+              <Zap className="h-4 w-4" />
+              Upgrade Plan
+            </Button>
           )}
         </div>
       </div>
