@@ -48,6 +48,7 @@ model User {
   payments     Payment[]
   blogPosts    BlogPost[]
   adminLogs    AdminLog[]
+  qpayInvoices QpayInvoice[]
 
   @@map("users")
 }
@@ -98,6 +99,7 @@ model SubscriptionPlan {
   stripePriceId String?
   price         Decimal  @db.Decimal(10, 2)
   currency      String   @default("usd")
+  priceMnt      Int?     // Price in MNT (₮) for QPay
   features      Json     @default("[]")
   isActive      Boolean  @default(true)
   sortOrder     Int      @default(0)
@@ -105,6 +107,7 @@ model SubscriptionPlan {
   updatedAt     DateTime @updatedAt
 
   subscriptions Subscription[]
+  qpayInvoices  QpayInvoice[]
 
   @@map("subscription_plans")
 }
@@ -132,7 +135,8 @@ model Payment {
   id              String        @id @default(uuid()) @db.Uuid
   userId          String        @db.Uuid
   subscriptionId  String        @db.Uuid
-  stripePaymentId String        @unique
+  stripePaymentId String?       @unique
+  qpayPaymentId   String?       @unique
   amount          Decimal       @db.Decimal(10, 2)
   currency        String
   status          PaymentStatus @default(SUCCEEDED)
@@ -142,6 +146,25 @@ model Payment {
   subscription Subscription @relation(fields: [subscriptionId], references: [id])
 
   @@map("payments")
+}
+
+model QpayInvoice {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  planId      String   @db.Uuid
+  invoiceId   String   @unique  // QPay-ийн invoice ID
+  orderId     String   @unique  // Манай дотоод order ID
+  qrText      String   @db.Text
+  qrImage     String   @db.Text // base64 PNG
+  amount      Int                // MNT дэх дүн
+  paid        Boolean  @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@map("qpay_invoices")
 }
 
 model BlogPost {

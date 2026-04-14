@@ -32,7 +32,9 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/api/users") ||
     pathname.startsWith("/api/subscriptions") ||
     pathname.startsWith("/api/stripe/checkout") ||
-    pathname.startsWith("/api/stripe/portal")
+    pathname.startsWith("/api/stripe/portal") ||
+    pathname.startsWith("/api/qpay/checkout") ||
+    pathname.startsWith("/api/qpay/check")
   ) {
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
