@@ -101,6 +101,11 @@ export async function DELETE(
     const token = await getToken({ req });
     const adminId = token?.sub as string;
 
+    const existing = await prisma.blogPost.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    }
+
     await prisma.blogPost.delete({ where: { id } });
 
     logAdminAction(adminId, "DELETE_POST", id);

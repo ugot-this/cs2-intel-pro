@@ -46,6 +46,11 @@ export async function PUT(
 
     const body = await req.json() as { role?: string; name?: string };
 
+    const existing = await prisma.user.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
     const user = await prisma.user.update({
       where: { id },
       data: {
