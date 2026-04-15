@@ -197,6 +197,44 @@ export async function getAllMatches(perPage = 20): Promise<PSMatch[]> {
   );
 }
 
+/**
+ * Огнооны мужаар тоглоом хайх — /cs2 болон /csgo хоёуланг туршина.
+ * IEM Rio гэх мэт удахгүй болох турнирын бүх тоглоомыг авахад хэрэглэнэ.
+ */
+export async function getScheduledMatches(daysAhead = 14): Promise<PSMatch[]> {
+  const from = new Date().toISOString().slice(0, 10) + "T00:00:00Z";
+  const to   = new Date(Date.now() + daysAhead * 86_400_000).toISOString().slice(0, 10) + "T23:59:59Z";
+  const range = `${from},${to}`;
+
+  const paths = ["/cs2/matches", "/csgo/matches"];
+  const results = await Promise.allSettled(
+    paths.map(p =>
+      get<PSMatch[]>(p, {
+        "range[scheduled_at]": range,
+        per_page: "50",
+        sort: "scheduled_at",
+      }, 300)
+    )
+  );
+
+  const seen = new Set<number>();
+  const merged: PSMatch[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled") {
+      for (const m of r.value) {
+        if (!seen.has(m.id) && m.status !== "finished" && m.status !== "canceled") {
+          seen.add(m.id);
+          merged.push(m);
+        }
+      }
+    }
+  }
+  return merged.sort((a, b) =>
+    new Date(a.scheduled_at ?? a.begin_at ?? 0).getTime() -
+    new Date(b.scheduled_at ?? b.begin_at ?? 0).getTime()
+  );
+}
+
 /** Дэлхийн шилдэг багууд — 1 цаг кэш */
 export async function getTopTeams(perPage = 30): Promise<PSTeam[]> {
   return get<PSTeam[]>("/csgo/teams", {

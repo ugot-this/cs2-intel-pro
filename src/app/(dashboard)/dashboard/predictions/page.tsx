@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/auth-helpers";
 import {
-  getUpcomingMatches,
+  getScheduledMatches,
   getRunningMatches,
   getTeamRecentMatches,
-  getAllMatches,
   hasPandaScoreKey,
   formatBO,
   matchStartTime,
@@ -13,9 +12,9 @@ import {
   predictWinProbability,
   oddsFromProbability,
   regionFromLocation,
+  type PSMatch,
 } from "@/lib/pandascore";
 import {
-  getHLTVMatches,
   getHLTVRankings,
   getHLTVUpcomingEvents,
   generateMatchupsFromRankings,
@@ -29,13 +28,16 @@ import { Calendar, Trophy } from "lucide-react";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Predictions – CS2 Intel Pro" };
 
+// ─── Plan helper ───────────────────────────────────────────────
+
 function planRequired(index: number): "free" | "pro" | "vip" {
   if (index < 3) return "free";
   if (index < 7) return "pro";
   return "vip";
 }
 
-/** cs2-data.ts mock → MatchData */
+// ─── Mock fallback ─────────────────────────────────────────────
+
 function fromMock(): MatchData[] {
   return UPCOMING_MATCHES.map((m, i) => ({
     id: i + 1000,
@@ -75,85 +77,90 @@ function fromMock(): MatchData[] {
   }));
 }
 
-/** PandaScore → MatchData */
+// ─── PandaScore → MatchData ─────────────────────────────────────
+
+async function enrichMatch(match: PSMatch, index: number): Promise<MatchData | null> {
+  if (match.opponents.length < 2) return null;
+  const tA = match.opponents[0].opponent;
+  const tB = match.opponents[1].opponent;
+
+  const [rA, rB] = await Promise.allSettled([
+    getTeamRecentMatches(tA.id, 10),
+    getTeamRecentMatches(tB.id, 10),
+  ]);
+  const mA = rA.status === "fulfilled" ? rA.value : [];
+  const mB = rB.status === "fulfilled" ? rB.value : [];
+  const wrA = computeWinRate(mA, tA.id);
+  const wrB = computeWinRate(mB, tB.id);
+  const formA = computeRecentForm(mA, tA.id);
+  const formB = computeRecentForm(mB, tB.id);
+  const { teamAWinPct, confidence } = predictWinProbability(wrA, wrB);
+
+  return {
+    id: match.id,
+    teamA: {
+      name: tA.name,
+      acronym: tA.acronym ?? tA.name.slice(0, 4).toUpperCase(),
+      imageUrl: tA.image_url,
+      region: regionFromLocation(tA.location),
+      winRate: wrA,
+      recentForm: formA,
+      players: tA.players.slice(0, 5).map(p => p.name),
+    },
+    teamB: {
+      name: tB.name,
+      acronym: tB.acronym ?? tB.name.slice(0, 4).toUpperCase(),
+      imageUrl: tB.image_url,
+      region: regionFromLocation(tB.location),
+      winRate: wrB,
+      recentForm: formB,
+      players: tB.players.slice(0, 5).map(p => p.name),
+    },
+    league: match.league.name,
+    serie: match.serie.full_name ?? "",
+    startTime: matchStartTime(match),
+    format: formatBO(match.number_of_games),
+    isLive: match.status === "running",
+    planReq: planRequired(index),
+    prediction: {
+      teamAWinPct,
+      teamBWinPct: 100 - teamAWinPct,
+      confidence,
+      winner: teamAWinPct >= 50 ? "teamA" : "teamB",
+      keyFactors: [
+        `${tA.name} сүүлийн тоглоомуудад ${wrA}% ялалтын хувьтай`,
+        `${tB.name} сүүлийн тоглоомуудад ${wrB}% ялалтын хувьтай`,
+        ...(match.number_of_games >= 3
+          ? [`${formatBO(match.number_of_games)} формат — газрын давуу байдал чухал`]
+          : []),
+      ],
+      oddsA: oddsFromProbability(teamAWinPct),
+      oddsB: oddsFromProbability(100 - teamAWinPct),
+    },
+  } satisfies MatchData;
+}
+
 async function fromPandaScore(): Promise<MatchData[]> {
-  const [upcoming, running] = await Promise.allSettled([
-    getUpcomingMatches(20),
+  // Try running matches + scheduled in the next 14 days in parallel
+  const [scheduled, running] = await Promise.allSettled([
+    getScheduledMatches(14),
     getRunningMatches(),
   ]);
 
-  let upcomingList = upcoming.status === "fulfilled" ? upcoming.value : [];
-  const runningList = running.status === "fulfilled" ? running.value : [];
+  const scheduledList = scheduled.status === "fulfilled" ? scheduled.value : [];
+  const runningList   = running.status === "fulfilled"   ? running.value   : [];
+
+  // Deduplicate: running takes priority
   const liveIds = new Set(runningList.map(m => m.id));
+  const combined = [
+    ...runningList.slice(0, 5),
+    ...scheduledList.filter(m => !liveIds.has(m.id)).slice(0, 20),
+  ];
 
-  if (upcomingList.length === 0) {
-    const all = await getAllMatches(20);
-    upcomingList = all.filter(m => !liveIds.has(m.id));
-  }
-
-  const all = [...runningList.slice(0, 3), ...upcomingList.slice(0, 17)];
-  if (all.length === 0) return [];
+  if (combined.length === 0) return [];
 
   const enriched = await Promise.allSettled(
-    all.map(async (match, i) => {
-      if (match.opponents.length < 2) return null;
-      const tA = match.opponents[0].opponent;
-      const tB = match.opponents[1].opponent;
-
-      const [rA, rB] = await Promise.allSettled([
-        getTeamRecentMatches(tA.id, 10),
-        getTeamRecentMatches(tB.id, 10),
-      ]);
-
-      const mA = rA.status === "fulfilled" ? rA.value : [];
-      const mB = rB.status === "fulfilled" ? rB.value : [];
-      const wrA = computeWinRate(mA, tA.id);
-      const wrB = computeWinRate(mB, tB.id);
-      const formA = computeRecentForm(mA, tA.id);
-      const formB = computeRecentForm(mB, tB.id);
-      const { teamAWinPct, confidence } = predictWinProbability(wrA, wrB);
-
-      return {
-        id: match.id,
-        teamA: {
-          name: tA.name,
-          acronym: tA.acronym ?? tA.name.slice(0, 4).toUpperCase(),
-          imageUrl: tA.image_url,
-          region: regionFromLocation(tA.location),
-          winRate: wrA,
-          recentForm: formA,
-          players: tA.players.slice(0, 5).map(p => p.name),
-        },
-        teamB: {
-          name: tB.name,
-          acronym: tB.acronym ?? tB.name.slice(0, 4).toUpperCase(),
-          imageUrl: tB.image_url,
-          region: regionFromLocation(tB.location),
-          winRate: wrB,
-          recentForm: formB,
-          players: tB.players.slice(0, 5).map(p => p.name),
-        },
-        league: match.league.name,
-        serie: match.serie.full_name ?? "",
-        startTime: matchStartTime(match),
-        format: formatBO(match.number_of_games),
-        isLive: liveIds.has(match.id),
-        planReq: planRequired(i),
-        prediction: {
-          teamAWinPct,
-          teamBWinPct: 100 - teamAWinPct,
-          confidence,
-          winner: teamAWinPct >= 50 ? "teamA" : "teamB",
-          keyFactors: [
-            `${tA.name} сүүлийн тоглоомуудад ${wrA}% ялалтын хувьтай`,
-            `${tB.name} сүүлийн тоглоомуудад ${wrB}% ялалтын хувьтай`,
-            ...(match.number_of_games >= 3 ? [`${formatBO(match.number_of_games)} формат — газрын давуу байдал чухал`] : []),
-          ],
-          oddsA: oddsFromProbability(teamAWinPct),
-          oddsB: oddsFromProbability(100 - teamAWinPct),
-        },
-      } satisfies MatchData;
-    })
+    combined.map((match, i) => enrichMatch(match, i))
   );
 
   return enriched
@@ -162,6 +169,8 @@ async function fromPandaScore(): Promise<MatchData[]> {
     )
     .map(r => r.value);
 }
+
+// ─── Upcoming Events panel ─────────────────────────────────────
 
 function UpcomingEventsPanel({ events }: { events: HLTVEvent[] }) {
   if (!events.length) return null;
@@ -180,7 +189,11 @@ function UpcomingEventsPanel({ events }: { events: HLTVEvent[] }) {
                 <span className="font-medium">{e.name}</span>
               </div>
               <span className="text-xs text-muted-foreground shrink-0">
-                {e.daysUntil === 0 ? "Өнөөдөр" : `${e.daysUntil} өдрийн дараа`}
+                {e.daysUntil === 0
+                  ? "🔴 Өнөөдөр эхэлнэ"
+                  : e.daysUntil < 0
+                  ? "🟢 Явагдаж байна"
+                  : `${e.daysUntil} өдрийн дараа`}
               </span>
             </div>
           ))}
@@ -190,57 +203,51 @@ function UpcomingEventsPanel({ events }: { events: HLTVEvent[] }) {
   );
 }
 
+// ─── Page ──────────────────────────────────────────────────────
+
 export default async function PredictionsPage() {
   const user = await requireAuth();
 
   let matches: MatchData[] = [];
-  let mockReason = "";
-  let usingMock = false;
+  let dataSource: "pandascore" | "rankings" | "demo" = "demo";
   let upcomingEvents: HLTVEvent[] = [];
 
-  // 1. HLTV-ээс бодит тоглоом авах
+  // 1. Always load upcoming events for the panel (static, instant)
   try {
-    matches = await getHLTVMatches();
-  } catch (err) {
-    console.error("[predictions] HLTV matches error:", err);
-  }
+    upcomingEvents = await getHLTVUpcomingEvents();
+  } catch { /* ignore */ }
 
-  // 2. HLTV хоосон → PandaScore туршина
-  if (matches.length === 0 && hasPandaScoreKey()) {
+  // 2. PandaScore — primary real-data source (date-range query)
+  if (hasPandaScoreKey()) {
     try {
       matches = await fromPandaScore();
+      if (matches.length > 0) dataSource = "pandascore";
     } catch (err) {
       console.error("[predictions] PandaScore error:", err);
     }
   }
 
-  // 3. Хоёулаа хоосон → HLTV rankings-аас matchup үүсгэнэ
+  // 3. PandaScore empty → HLTV ranking matchups anchored to next event
   if (matches.length === 0) {
     try {
-      const [rankings, events] = await Promise.allSettled([
-        getHLTVRankings(),
-        getHLTVUpcomingEvents(),
-      ]);
-
-      upcomingEvents = events.status === "fulfilled" ? events.value : [];
-
-      if (rankings.status === "fulfilled" && rankings.value.length > 0) {
-        matches = generateMatchupsFromRankings(rankings.value, 10);
-        usingMock = true;
-        mockReason = "Одоогоор хуваарьт тоглоом байхгүй — HLTV рейтинг дээр суурилсан prediction";
-      } else {
-        // 4. Бүх зүйл амжилтгүй → mock
-        matches = fromMock();
-        usingMock = true;
-        mockReason = "Demo горим";
-      }
+      const rankings = await getHLTVRankings();
+      // Use the nearest upcoming event as the date anchor
+      const anchor = upcomingEvents.find(e => e.daysUntil >= 0);
+      matches = generateMatchupsFromRankings(rankings, 10, anchor);
+      dataSource = "rankings";
     } catch (err) {
-      console.error("[predictions] HLTV rankings error:", err);
-      matches = fromMock();
-      usingMock = true;
-      mockReason = "Demo горим";
+      console.error("[predictions] Rankings fallback error:", err);
     }
   }
+
+  // 4. Everything failed → static demo data
+  if (matches.length === 0) {
+    matches = fromMock();
+    dataSource = "demo";
+  }
+
+  const usingMock = dataSource === "demo";
+  const mockReason = usingMock ? "Demo горим — бүх эх сурвалж амжилтгүй" : undefined;
 
   return (
     <div className="p-6 space-y-6">
@@ -248,7 +255,11 @@ export default async function PredictionsPage() {
         <div>
           <h1 className="text-3xl font-bold">Таамаглалууд</h1>
           <p className="text-muted-foreground mt-1">
-            Тоглоомоо сонгоод AI prediction авна уу
+            {dataSource === "pandascore"
+              ? "🟢 PandaScore — бодит тоглоомын хуваарь"
+              : dataSource === "rankings"
+              ? "🟡 HLTV рейтинг дээр суурилсан симуляц"
+              : "⚪ Demo өгөгдөл"}
           </p>
         </div>
       </div>

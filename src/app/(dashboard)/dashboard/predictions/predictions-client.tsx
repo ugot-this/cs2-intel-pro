@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { TeamLogo } from "../teams/team-logo";
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -257,13 +258,7 @@ function MatchCard({
         <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-center">
           {/* Team A */}
           <div className="flex items-center gap-2">
-            {teamA.imageUrl ? (
-              <img src={teamA.imageUrl} alt={teamA.name} className="w-9 h-9 rounded object-contain bg-background shrink-0" />
-            ) : (
-              <div className="w-9 h-9 rounded bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                {teamA.acronym.slice(0, 2)}
-              </div>
-            )}
+            <TeamLogo logoUrl={teamA.imageUrl} name={teamA.name} acronym={teamA.acronym} size="sm" />
             <div className="min-w-0">
               <p className="font-bold text-sm truncate">{teamA.name}</p>
               <div className="flex items-center gap-1 mt-0.5">
@@ -287,13 +282,7 @@ function MatchCard({
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">WR {teamB.winRate}%</p>
             </div>
-            {teamB.imageUrl ? (
-              <img src={teamB.imageUrl} alt={teamB.name} className="w-9 h-9 rounded object-contain bg-background shrink-0" />
-            ) : (
-              <div className="w-9 h-9 rounded bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                {teamB.acronym.slice(0, 2)}
-              </div>
-            )}
+            <TeamLogo logoUrl={teamB.imageUrl} name={teamB.name} acronym={teamB.acronym} size="sm" />
           </div>
         </div>
 

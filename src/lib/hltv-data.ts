@@ -3,7 +3,7 @@
  * Uses enriched static HLTV top-30 rankings — no external package dependency
  */
 import type { MatchData } from "@/app/(dashboard)/dashboard/predictions/predictions-client";
-import { HLTV_TOP30, UPCOMING_EVENTS } from "@/lib/cs2-rankings";
+import { HLTV_TOP30, UPCOMING_EVENTS, type UpcomingEvent } from "@/lib/cs2-rankings";
 
 // Re-export types for consumers
 export type { HLTVTeam } from "@/lib/cs2-rankings";
@@ -21,7 +21,7 @@ export async function getHLTVUpcomingEvents() {
   return UPCOMING_EVENTS;
 }
 
-// ─── Matches (no live scraping — off-week) ─────────────────────
+// ─── Matches (no live scraping — Cloudflare protected) ─────────
 
 export async function getHLTVMatches(): Promise<MatchData[]> {
   return [];
@@ -29,10 +29,26 @@ export async function getHLTVMatches(): Promise<MatchData[]> {
 
 // ─── Matchups generated from rankings ──────────────────────────
 
+/**
+ * HLTV рейтингийн top баг pair-ээс prediction үүсгэнэ.
+ * Тоглоомын огноог удахгүй болох турнирт тулгуурлан тооцоолно —
+ * "2 өдрийн дараа" гэх мэт хуурамч огноо биш.
+ */
 export function generateMatchupsFromRankings(
   teams: Awaited<ReturnType<typeof getHLTVRankings>>,
-  count = 10
+  count = 10,
+  anchorEvent?: UpcomingEvent
 ): MatchData[] {
+  // Anchor to the soonest upcoming event (e.g. IEM Rio April 21)
+  const event = anchorEvent ?? UPCOMING_EVENTS.find(e => e.daysUntil >= 0);
+  const eventStart = event
+    ? event.dateStart
+    : Date.now() + 6 * 24 * 3600 * 1000;
+  const eventName = event?.name ?? "CS2 Tournament";
+
+  // 3 time slots per day: 09:00, 13:00, 17:00 UTC
+  const SLOTS = [9, 13, 17];
+
   const top = teams.slice(0, count * 2);
   const matches: MatchData[] = [];
 
@@ -43,15 +59,17 @@ export function generateMatchupsFromRankings(
 
     const scoreA = 1 / tA.rank;
     const scoreB = 1 / tB.rank;
-    const total = scoreA + scoreB;
-    const pctA = Math.round((scoreA / total) * 100);
-    const diff = Math.abs(tA.rank - tB.rank);
+    const total  = scoreA + scoreB;
+    const pctA   = Math.round((scoreA / total) * 100);
+    const diff   = Math.abs(tA.rank - tB.rank);
     const confidence = Math.min(82, 50 + diff * 2);
-
     const planReq: "free" | "pro" | "vip" = i < 3 ? "free" : i < 7 ? "pro" : "vip";
 
+    // Day 0 = event start day, cycling through 3 slots per day
+    const dayIndex = Math.floor(i / SLOTS.length);
+    const slotHour = SLOTS[i % SLOTS.length];
     const startTime = new Date(
-      Date.now() + (i + 1) * 2 * 24 * 3600 * 1000
+      eventStart + dayIndex * 86_400_000 + slotHour * 3_600_000
     ).toISOString();
 
     matches.push({
@@ -59,7 +77,7 @@ export function generateMatchupsFromRankings(
       teamA: {
         name: tA.name,
         acronym: tA.name.slice(0, 4).toUpperCase(),
-        imageUrl: null,
+        imageUrl: tA.logoUrl,          // real HLTV CDN logo
         region: tA.region,
         winRate: tA.winRate,
         recentForm: [],
@@ -68,16 +86,16 @@ export function generateMatchupsFromRankings(
       teamB: {
         name: tB.name,
         acronym: tB.name.slice(0, 4).toUpperCase(),
-        imageUrl: null,
+        imageUrl: tB.logoUrl,          // real HLTV CDN logo
         region: tB.region,
         winRate: tB.winRate,
         recentForm: [],
         players: tB.players,
       },
-      league: "HLTV Ranking Matchup",
+      league: eventName,
       serie: `#${tA.rank} vs #${tB.rank}`,
       startTime,
-      format: "BO3",
+      format: i % 3 === 0 ? "BO1" : "BO3",
       isLive: false,
       planReq,
       prediction: {
@@ -89,7 +107,9 @@ export function generateMatchupsFromRankings(
           `${tA.name} дэлхийн рейтингт #${tA.rank}-д байна`,
           `${tB.name} дэлхийн рейтингт #${tB.rank}-д байна`,
           `Rank зөрүү: ${diff} байр`,
-          diff < 3 ? "Тэнцүү тэмцэл болно" : `${tA.rank < tB.rank ? tA.name : tB.name} тодорхой давуу`,
+          diff < 3
+            ? "Тэнцүү тэмцэл болно"
+            : `${tA.rank < tB.rank ? tA.name : tB.name} тодорхой давуу`,
         ],
         oddsA: Math.round((100 / pctA) * 100) / 100,
         oddsB: Math.round((100 / (100 - pctA)) * 100) / 100,
