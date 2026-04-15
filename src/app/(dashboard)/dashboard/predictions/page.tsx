@@ -157,21 +157,26 @@ export default async function PredictionsPage() {
 
   let matches: MatchData[] = [];
   let usingMock = false;
+  let mockReason = "";
 
   if (!hasPandaScoreKey()) {
     matches = fromMock();
     usingMock = true;
+    mockReason = "API key тохируулаагүй";
   } else {
     try {
       matches = await fromPandaScore();
       if (matches.length === 0) {
         matches = fromMock();
         usingMock = true;
+        mockReason = "API хариу хоосон ирлээ";
       }
     } catch (err) {
-      console.error("[predictions] PandaScore error:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[predictions] PandaScore error:", msg);
       matches = fromMock();
       usingMock = true;
+      mockReason = msg;
     }
   }
 
@@ -191,6 +196,7 @@ export default async function PredictionsPage() {
         matches={matches}
         userPlan={user.planSlug}
         usingMock={usingMock}
+        mockReason={mockReason}
       />
     </div>
   );

@@ -342,10 +342,12 @@ export function PredictionsList({
   matches,
   userPlan,
   usingMock,
+  mockReason,
 }: {
   matches: MatchData[];
   userPlan: string;
   usingMock: boolean;
+  mockReason?: string;
 }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
@@ -394,9 +396,11 @@ export function PredictionsList({
       {/* Demo banner */}
       {usingMock && (
         <Card className="border-yellow-500/20 bg-yellow-500/5">
-          <CardContent className="p-3 text-xs text-yellow-400">
-            ⚠️ Demo горим — жинхэнэ тоглоомуудыг харахын тулд{" "}
-            <span className="font-mono font-bold">PANDASCORE_API_KEY</span> тохируулна уу.
+          <CardContent className="p-3 text-xs text-yellow-400 space-y-1">
+            <p>⚠️ Demo горим — demo өгөгдөл харагдаж байна.</p>
+            {mockReason && (
+              <p className="text-yellow-400/70 font-mono">Шалтгаан: {mockReason}</p>
+            )}
           </CardContent>
         </Card>
       )}
