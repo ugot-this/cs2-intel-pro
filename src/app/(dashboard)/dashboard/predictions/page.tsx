@@ -14,8 +14,17 @@ import {
   oddsFromProbability,
   regionFromLocation,
 } from "@/lib/pandascore";
+import {
+  getHLTVMatches,
+  getHLTVRankings,
+  getHLTVUpcomingEvents,
+  generateMatchupsFromRankings,
+  type HLTVEvent,
+} from "@/lib/hltv-data";
 import { UPCOMING_MATCHES } from "@/lib/cs2-data";
 import { PredictionsList, type MatchData } from "./predictions-client";
+import { Card, CardContent } from "@/components/ui/card";
+import { Calendar, Trophy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Predictions – CS2 Intel Pro" };
@@ -26,7 +35,7 @@ function planRequired(index: number): "free" | "pro" | "vip" {
   return "vip";
 }
 
-/** cs2-data mock → MatchData */
+/** cs2-data.ts mock → MatchData */
 function fromMock(): MatchData[] {
   return UPCOMING_MATCHES.map((m, i) => ({
     id: i + 1000,
@@ -66,7 +75,7 @@ function fromMock(): MatchData[] {
   }));
 }
 
-/** PandaScore match → MatchData */
+/** PandaScore → MatchData */
 async function fromPandaScore(): Promise<MatchData[]> {
   const [upcoming, running] = await Promise.allSettled([
     getUpcomingMatches(20),
@@ -77,13 +86,13 @@ async function fromPandaScore(): Promise<MatchData[]> {
   const runningList = running.status === "fulfilled" ? running.value : [];
   const liveIds = new Set(runningList.map(m => m.id));
 
-  // upcoming хоосон бол өргөн хайлт хийнэ (scheduled + running + не_started)
   if (upcomingList.length === 0) {
     const all = await getAllMatches(20);
     upcomingList = all.filter(m => !liveIds.has(m.id));
   }
 
   const all = [...runningList.slice(0, 3), ...upcomingList.slice(0, 17)];
+  if (all.length === 0) return [];
 
   const enriched = await Promise.allSettled(
     all.map(async (match, i) => {
@@ -98,21 +107,13 @@ async function fromPandaScore(): Promise<MatchData[]> {
 
       const mA = rA.status === "fulfilled" ? rA.value : [];
       const mB = rB.status === "fulfilled" ? rB.value : [];
-
       const wrA = computeWinRate(mA, tA.id);
       const wrB = computeWinRate(mB, tB.id);
       const formA = computeRecentForm(mA, tA.id);
       const formB = computeRecentForm(mB, tB.id);
       const { teamAWinPct, confidence } = predictWinProbability(wrA, wrB);
 
-      const keyFactors = [
-        `${tA.name} сүүлийн тоглоомуудад ${wrA}% ялалтын хувьтай`,
-        `${tB.name} сүүлийн тоглоомуудад ${wrB}% ялалтын хувьтай`,
-        ...(match.number_of_games >= 3 ? [`${formatBO(match.number_of_games)} формат — газрын давуу байдал чухал`] : []),
-        ...(Math.abs(wrA - wrB) > 20 ? [`${teamAWinPct >= 50 ? tA.name : tB.name} тодорхой давуу байдалтай`] : ["Тэнцүү тэмцэл болох магадлалтай"]),
-      ];
-
-      const data: MatchData = {
+      return {
         id: match.id,
         teamA: {
           name: tA.name,
@@ -143,12 +144,15 @@ async function fromPandaScore(): Promise<MatchData[]> {
           teamBWinPct: 100 - teamAWinPct,
           confidence,
           winner: teamAWinPct >= 50 ? "teamA" : "teamB",
-          keyFactors,
+          keyFactors: [
+            `${tA.name} сүүлийн тоглоомуудад ${wrA}% ялалтын хувьтай`,
+            `${tB.name} сүүлийн тоглоомуудад ${wrB}% ялалтын хувьтай`,
+            ...(match.number_of_games >= 3 ? [`${formatBO(match.number_of_games)} формат — газрын давуу байдал чухал`] : []),
+          ],
           oddsA: oddsFromProbability(teamAWinPct),
           oddsB: oddsFromProbability(100 - teamAWinPct),
         },
-      };
-      return data;
+      } satisfies MatchData;
     })
   );
 
@@ -159,37 +163,87 @@ async function fromPandaScore(): Promise<MatchData[]> {
     .map(r => r.value);
 }
 
+function UpcomingEventsPanel({ events }: { events: HLTVEvent[] }) {
+  if (!events.length) return null;
+  return (
+    <Card className="border-primary/20 bg-primary/5">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Trophy className="w-4 h-4 text-primary" />
+          <p className="text-sm font-semibold text-primary">Удахгүй болох турнир</p>
+        </div>
+        <div className="space-y-2">
+          {events.map(e => (
+            <div key={e.id} className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <span className="font-medium">{e.name}</span>
+              </div>
+              <span className="text-xs text-muted-foreground shrink-0">
+                {e.daysUntil === 0 ? "Өнөөдөр" : `${e.daysUntil} өдрийн дараа`}
+              </span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default async function PredictionsPage() {
   const user = await requireAuth();
 
   let matches: MatchData[] = [];
-  let usingMock = false;
   let mockReason = "";
+  let usingMock = false;
+  let upcomingEvents: HLTVEvent[] = [];
 
-  if (!hasPandaScoreKey()) {
-    matches = fromMock();
-    usingMock = true;
-    mockReason = "API key тохируулаагүй";
-  } else {
+  // 1. HLTV-ээс бодит тоглоом авах
+  try {
+    matches = await getHLTVMatches();
+  } catch (err) {
+    console.error("[predictions] HLTV matches error:", err);
+  }
+
+  // 2. HLTV хоосон → PandaScore туршина
+  if (matches.length === 0 && hasPandaScoreKey()) {
     try {
       matches = await fromPandaScore();
-      if (matches.length === 0) {
+    } catch (err) {
+      console.error("[predictions] PandaScore error:", err);
+    }
+  }
+
+  // 3. Хоёулаа хоосон → HLTV rankings-аас matchup үүсгэнэ
+  if (matches.length === 0) {
+    try {
+      const [rankings, events] = await Promise.allSettled([
+        getHLTVRankings(),
+        getHLTVUpcomingEvents(),
+      ]);
+
+      upcomingEvents = events.status === "fulfilled" ? events.value : [];
+
+      if (rankings.status === "fulfilled" && rankings.value.length > 0) {
+        matches = generateMatchupsFromRankings(rankings.value, 10);
+        usingMock = true;
+        mockReason = "Одоогоор хуваарьт тоглоом байхгүй — HLTV рейтинг дээр суурилсан prediction";
+      } else {
+        // 4. Бүх зүйл амжилтгүй → mock
         matches = fromMock();
         usingMock = true;
-        mockReason = "PandaScore-д одоогоор хуваарьт CS2 тоглоом байхгүй байна — demo өгөгдөл харуулж байна";
+        mockReason = "Demo горим";
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[predictions] PandaScore error:", msg);
+      console.error("[predictions] HLTV rankings error:", err);
       matches = fromMock();
       usingMock = true;
-      mockReason = msg;
+      mockReason = "Demo горим";
     }
   }
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Таамаглалууд</h1>
@@ -198,6 +252,10 @@ export default async function PredictionsPage() {
           </p>
         </div>
       </div>
+
+      {upcomingEvents.length > 0 && (
+        <UpcomingEventsPanel events={upcomingEvents} />
+      )}
 
       <PredictionsList
         matches={matches}

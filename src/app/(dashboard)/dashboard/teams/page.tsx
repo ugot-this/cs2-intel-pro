@@ -9,6 +9,7 @@ import {
   regionFromLocation,
   type PSTeam,
 } from "@/lib/pandascore";
+import { getHLTVRankings } from "@/lib/hltv-data";
 import { TEAMS } from "@/lib/cs2-data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -92,22 +93,60 @@ export default async function TeamsPage() {
 
   let teams: EnrichedTeam[] = [];
   let usingMock = false;
+  let dataSource = "demo";
 
-  if (!hasPandaScoreKey()) {
-    teams = mockTeams();
-    usingMock = true;
-  } else {
+  // 1. HLTV Rankings — үргэлж ажилладаг
+  try {
+    const hltvRankings = await getHLTVRankings();
+    if (hltvRankings.length > 0) {
+      teams = hltvRankings.map(r => ({
+        team: {
+          id: r.id,
+          name: r.name,
+          acronym: r.name.slice(0, 4).toUpperCase(),
+          image_url: null,
+          location: null,
+          players: [],
+        },
+        winRate: Math.max(10, Math.round(70 - r.rank * 1.2)),
+        recentForm: [],
+        region: "EU",
+      }));
+      dataSource = "hltv";
+    }
+  } catch (err) {
+    console.error("[teams] HLTV rankings error:", err);
+  }
+
+  // 2. PandaScore — API key байвал туршина (team logos, players, stats)
+  if (hasPandaScoreKey()) {
     try {
       const rawTeams = await getTopTeams(20);
       const results = await Promise.allSettled(rawTeams.map(enrichTeam));
-      teams = results
+      const pandaTeams = results
         .filter((r): r is PromiseFulfilledResult<EnrichedTeam> => r.status === "fulfilled")
-        .map(r => r.value)
-        .sort((a, b) => b.winRate - a.winRate);
+        .map(r => r.value);
+      if (pandaTeams.length > 0) {
+        // HLTV рейтингийг хадгалж, PandaScore-оос logo, players авна
+        teams = teams.map(ht => {
+          const pt = pandaTeams.find(p =>
+            p.team.name.toLowerCase().includes(ht.team.name.toLowerCase()) ||
+            ht.team.name.toLowerCase().includes(p.team.name.toLowerCase())
+          );
+          return pt ? { ...ht, team: { ...ht.team, image_url: pt.team.image_url, players: pt.team.players }, recentForm: pt.recentForm } : ht;
+        });
+        dataSource = "hltv+pandascore";
+      }
     } catch {
-      teams = mockTeams();
-      usingMock = true;
+      // PandaScore алдаатай ч HLTV хангалттай
     }
+  }
+
+  // 3. Хоёулаа хоосон → mock
+  if (teams.length === 0) {
+    teams = mockTeams();
+    usingMock = true;
+    dataSource = "demo";
   }
 
   const top3 = teams.slice(0, 3);
@@ -117,15 +156,16 @@ export default async function TeamsPage() {
       <div>
         <h1 className="text-3xl font-bold">Багуудын статистик</h1>
         <p className="text-muted-foreground mt-1">
-          {usingMock ? "Demo өгөгдөл" : "PandaScore бодит мэдээлэл"}
+          {dataSource === "hltv" || dataSource === "hltv+pandascore"
+            ? "🔴 HLTV бодит рейтинг"
+            : "Demo өгөгдөл"}
         </p>
       </div>
 
       {usingMock && (
         <Card className="border-yellow-500/20 bg-yellow-500/5">
-          <CardContent className="p-3 text-xs text-yellow-400 flex items-center gap-2">
-            ⚠️ Demo горим — жинхэнэ багуудыг харахын тулд{" "}
-            <span className="font-mono font-bold">PANDASCORE_API_KEY</span> тохируулна уу.
+          <CardContent className="p-3 text-xs text-yellow-400">
+            ⚠️ Demo горим — HLTV холбогдож чадсангүй.
           </CardContent>
         </Card>
       )}
