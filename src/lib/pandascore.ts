@@ -121,19 +121,80 @@ async function get<T>(
 
 // ─── Public functions ─────────────────────────────────────────
 
-/** Удахгүй болох тоглоомууд — 5 минут кэш */
+/** Удахгүй болох тоглоомууд — /csgo болон /cs2 хоёуланг туршина */
 export async function getUpcomingMatches(perPage = 20): Promise<PSMatch[]> {
-  return get<PSMatch[]>("/csgo/matches/upcoming", {
-    per_page: String(perPage),
-    sort: "scheduled_at",
-  }, 300);
+  // CS2 шинэ endpoint-г эхлээд туршина, дараа нь csgo fallback
+  const [cs2, csgo] = await Promise.allSettled([
+    get<PSMatch[]>("/cs2/matches/upcoming", {
+      per_page: String(perPage),
+      sort: "scheduled_at",
+    }, 300),
+    get<PSMatch[]>("/csgo/matches/upcoming", {
+      per_page: String(perPage),
+      sort: "scheduled_at",
+    }, 300),
+  ]);
+
+  const cs2List = cs2.status === "fulfilled" ? cs2.value : [];
+  const csgoList = csgo.status === "fulfilled" ? csgo.value : [];
+
+  // Давхардлыг арилган нэгтгэнэ
+  const seen = new Set<number>();
+  const merged: PSMatch[] = [];
+  for (const m of [...cs2List, ...csgoList]) {
+    if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+  }
+  return merged.sort((a, b) =>
+    new Date(a.scheduled_at ?? a.begin_at ?? 0).getTime() -
+    new Date(b.scheduled_at ?? b.begin_at ?? 0).getTime()
+  );
 }
 
 /** Одоо явагдаж байгаа тоглоомууд — 1 минут кэш */
 export async function getRunningMatches(): Promise<PSMatch[]> {
-  return get<PSMatch[]>("/csgo/matches/running", {
-    per_page: "10",
-  }, 60);
+  const [cs2, csgo] = await Promise.allSettled([
+    get<PSMatch[]>("/cs2/matches/running", { per_page: "10" }, 60),
+    get<PSMatch[]>("/csgo/matches/running", { per_page: "10" }, 60),
+  ]);
+  const cs2List = cs2.status === "fulfilled" ? cs2.value : [];
+  const csgoList = csgo.status === "fulfilled" ? csgo.value : [];
+  const seen = new Set<number>();
+  return [...cs2List, ...csgoList].filter(m => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id); return true;
+  });
+}
+
+/**
+ * Өргөн хайлт: upcoming хоосон үед scheduled + not_started тоглоомуудыг авна.
+ * /csgo болон /cs2 хоёуланг туршина.
+ */
+export async function getAllMatches(perPage = 20): Promise<PSMatch[]> {
+  const paths = [
+    "/cs2/matches",
+    "/csgo/matches",
+  ];
+  const params = {
+    per_page: String(perPage),
+    "filter[status]": "not_started",
+    sort: "scheduled_at",
+  };
+  const results = await Promise.allSettled(
+    paths.map(p => get<PSMatch[]>(p, params, 300))
+  );
+  const seen = new Set<number>();
+  const merged: PSMatch[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled") {
+      for (const m of r.value) {
+        if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+      }
+    }
+  }
+  return merged.sort((a, b) =>
+    new Date(a.scheduled_at ?? a.begin_at ?? 0).getTime() -
+    new Date(b.scheduled_at ?? b.begin_at ?? 0).getTime()
+  );
 }
 
 /** Дэлхийн шилдэг багууд — 1 цаг кэш */

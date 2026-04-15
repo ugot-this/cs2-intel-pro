@@ -4,6 +4,7 @@ import {
   getUpcomingMatches,
   getRunningMatches,
   getTeamRecentMatches,
+  getAllMatches,
   hasPandaScoreKey,
   formatBO,
   matchStartTime,
@@ -72,9 +73,15 @@ async function fromPandaScore(): Promise<MatchData[]> {
     getRunningMatches(),
   ]);
 
-  const upcomingList = upcoming.status === "fulfilled" ? upcoming.value : [];
+  let upcomingList = upcoming.status === "fulfilled" ? upcoming.value : [];
   const runningList = running.status === "fulfilled" ? running.value : [];
   const liveIds = new Set(runningList.map(m => m.id));
+
+  // upcoming хоосон бол өргөн хайлт хийнэ (scheduled + running + не_started)
+  if (upcomingList.length === 0) {
+    const all = await getAllMatches(20);
+    upcomingList = all.filter(m => !liveIds.has(m.id));
+  }
 
   const all = [...runningList.slice(0, 3), ...upcomingList.slice(0, 17)];
 
@@ -169,7 +176,7 @@ export default async function PredictionsPage() {
       if (matches.length === 0) {
         matches = fromMock();
         usingMock = true;
-        mockReason = "API хариу хоосон ирлээ";
+        mockReason = "PandaScore-д одоогоор хуваарьт CS2 тоглоом байхгүй байна — demo өгөгдөл харуулж байна";
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
