@@ -1,44 +1,41 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
-import { hasAccess } from "@/lib/subscription";
 
-export async function proxy(request: NextRequest) {
+/**
+ * NextAuth v5 session cookie нэрүүд.
+ * Proxy-д token decode хийхгүй — зөвхөн cookie байгаа эсэхийг шалгана.
+ * Бүрэн auth verify нь requireAuth() / requireAdmin() -д хийгдэнэ.
+ */
+function hasSession(request: NextRequest): boolean {
+  return !!(
+    request.cookies.get("__Secure-authjs.session-token") ??
+    request.cookies.get("authjs.session-token") ??
+    request.cookies.get("next-auth.session-token") // fallback
+  );
+}
+
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const loggedIn = hasSession(request);
 
-  // NextAuth v5 uses "authjs.session-token" (prod: "__Secure-authjs.session-token")
-  // v4 default "next-auth.session-token" no longer applies
-  const isSecure = request.nextUrl.protocol === "https:";
-  const cookieName = isSecure
-    ? "__Secure-authjs.session-token"
-    : "authjs.session-token";
-
-  const token = await getToken({
-    req: request,
-    secret: process.env.AUTH_SECRET,
-    cookieName,
-  });
-
-  // 1. Auth pages: redirect to /dashboard if already logged in
+  // 1. Auth pages — нэвтэрсэн бол dashboard руу
   if (pathname === "/login" || pathname === "/register") {
-    if (token) {
+    if (loggedIn) {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
     return NextResponse.next();
   }
 
-  // 2. Admin routes: require ADMIN role
+  // 2. Admin routes — нэвтрээгүй бол login руу
+  //    Role check нь requireAdmin() дотор хийгдэнэ
   if (pathname.startsWith("/admin") || pathname.startsWith("/api/admin")) {
-    if (!token) {
+    if (!loggedIn) {
       return NextResponse.redirect(new URL("/login", request.url));
     }
-    if (token.role !== "ADMIN") {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
-    }
     return NextResponse.next();
   }
 
-  // 3. Authenticated API routes: return 401 JSON if not authenticated
+  // 3. Authenticated API routes — cookie байхгүй бол 401
   if (
     pathname.startsWith("/api/users") ||
     pathname.startsWith("/api/subscriptions") ||
@@ -47,40 +44,24 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/api/qpay/checkout") ||
     pathname.startsWith("/api/qpay/check")
   ) {
-    if (!token) {
+    if (!loggedIn) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.next();
   }
 
-  // 4. Dashboard routes: require auth
+  // 4. Dashboard routes — нэвтрээгүй бол login руу
+  //    Plan-based гating нь page дотор хийгдэнэ
   if (pathname.startsWith("/dashboard")) {
-    if (!token) {
+    if (!loggedIn) {
       const loginUrl = new URL("/login", request.url);
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
-
-    const userPlan = (token.planSlug as string) ?? "free";
-
-    // /dashboard/vip/* requires vip plan
-    if (pathname.startsWith("/dashboard/vip")) {
-      if (!hasAccess(userPlan, "vip")) {
-        return NextResponse.redirect(new URL("/pricing?upgrade=vip", request.url));
-      }
-    }
-
-    // /dashboard/pro/* requires pro or vip plan
-    if (pathname.startsWith("/dashboard/pro")) {
-      if (!hasAccess(userPlan, "pro")) {
-        return NextResponse.redirect(new URL("/pricing?upgrade=pro", request.url));
-      }
-    }
-
     return NextResponse.next();
   }
 
-  // 5. All other routes: pass through
+  // 5. Бусад бүх route — нэвтрэх
   return NextResponse.next();
 }
 
