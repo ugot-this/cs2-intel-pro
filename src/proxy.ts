@@ -6,7 +6,18 @@ import { hasAccess } from "@/lib/subscription";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const token = await getToken({ req: request });
+  // NextAuth v5 uses "authjs.session-token" (prod: "__Secure-authjs.session-token")
+  // v4 default "next-auth.session-token" no longer applies
+  const isSecure = request.nextUrl.protocol === "https:";
+  const cookieName = isSecure
+    ? "__Secure-authjs.session-token"
+    : "authjs.session-token";
+
+  const token = await getToken({
+    req: request,
+    secret: process.env.AUTH_SECRET,
+    cookieName,
+  });
 
   // 1. Auth pages: redirect to /dashboard if already logged in
   if (pathname === "/login" || pathname === "/register") {
