@@ -4,6 +4,7 @@ import {
   getUpcomingMatches,
   getRunningMatches,
   getTeamRecentMatches,
+  hasPandaScoreKey,
   formatBO,
   matchStartTime,
   relativeTime,
@@ -15,6 +16,7 @@ import {
   type PSMatch,
   type PSTeam,
 } from "@/lib/pandascore";
+import { UPCOMING_MATCHES } from "@/lib/cs2-data";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -119,42 +121,118 @@ async function enrichMatch(
   };
 }
 
+/** cs2-data.ts mock-оос EnrichedMatch үүсгэх */
+function mockEnrichedMatches(): EnrichedMatch[] {
+  return UPCOMING_MATCHES.map((m, i) => {
+    // PSTeam-тай адил бүтцийг mock-оос үүсгэнэ
+    const toTeam = (t: typeof m.teamA): PSTeam => ({
+      id: t.id.charCodeAt(0),
+      name: t.name,
+      acronym: t.tag,
+      image_url: null,
+      location: t.region === "CIS" ? "UA" : t.region === "NA" ? "US" : t.region === "APAC" ? "KR" : "DE",
+      players: t.players.map((p, idx) => ({
+        id: idx,
+        name: p,
+        first_name: null,
+        last_name: null,
+        nationality: null,
+        image_url: null,
+      })),
+    });
+
+    const tA = toTeam(m.teamA);
+    const tB = toTeam(m.teamB);
+
+    // PSMatch-тай адил бүтэц
+    const fakeMatch: PSMatch = {
+      id: i + 1000,
+      name: `${m.teamA.tag} vs ${m.teamB.tag}`,
+      slug: `${m.teamA.tag.toLowerCase()}-vs-${m.teamB.tag.toLowerCase()}`,
+      status: "not_started",
+      scheduled_at: m.startTime,
+      begin_at: null,
+      end_at: null,
+      match_type: "best_of",
+      number_of_games: m.format === "BO1" ? 1 : m.format === "BO3" ? 3 : 5,
+      league: { id: i, name: m.tournament, image_url: null, url: null },
+      serie: { id: i, name: null, full_name: m.tournament, season: null, year: 2026 },
+      tournament: { id: i, name: m.tournament, slug: "", prizepool: null },
+      opponents: [
+        { opponent: tA, type: "Team" },
+        { opponent: tB, type: "Team" },
+      ],
+      results: [],
+      winner: null,
+      winner_id: null,
+      games: [],
+      streams_list: [],
+    };
+
+    return {
+      match: fakeMatch,
+      teamA: tA,
+      teamB: tB,
+      teamAWinPct: m.prediction.teamAWinPct,
+      teamBWinPct: 100 - m.prediction.teamAWinPct,
+      confidence: m.prediction.confidence,
+      recentFormA: m.teamA.recentForm,
+      recentFormB: m.teamB.recentForm,
+      winRateA: m.teamA.winRate,
+      winRateB: m.teamB.winRate,
+      planReq: m.planRequired,
+      isLive: false,
+    };
+  });
+}
+
 export default async function PredictionsPage() {
   const user = await requireAuth();
   const userPlan = user.planSlug;
 
   let enriched: EnrichedMatch[] = [];
   let apiError: string | null = null;
+  let usingMock = false;
 
-  try {
-    const [upcoming, running] = await Promise.allSettled([
-      getUpcomingMatches(15),
-      getRunningMatches(),
-    ]);
+  if (!hasPandaScoreKey()) {
+    // API key байхгүй — mock өгөгдөл ашиглана
+    enriched = mockEnrichedMatches();
+    usingMock = true;
+  } else {
+    try {
+      const [upcoming, running] = await Promise.allSettled([
+        getUpcomingMatches(15),
+        getRunningMatches(),
+      ]);
 
-    const upcomingMatches = upcoming.status === "fulfilled" ? upcoming.value : [];
-    const runningMatches = running.status === "fulfilled" ? running.value : [];
-    const liveIds = new Set(runningMatches.map(m => m.id));
+      const upcomingMatches = upcoming.status === "fulfilled" ? upcoming.value : [];
+      const runningMatches = running.status === "fulfilled" ? running.value : [];
+      const liveIds = new Set(runningMatches.map(m => m.id));
 
-    const allMatches = [
-      ...runningMatches.slice(0, 2),
-      ...upcomingMatches.slice(0, 13),
-    ];
+      const allMatches = [
+        ...runningMatches.slice(0, 2),
+        ...upcomingMatches.slice(0, 13),
+      ];
 
-    if (allMatches.length === 0) {
-      apiError = "Одоогоор хуваарьт тоглоом байхгүй байна.";
-    } else {
-      const results = await Promise.allSettled(
-        allMatches.map((m, i) => enrichMatch(m, i, liveIds.has(m.id)))
-      );
-      enriched = results
-        .filter((r): r is PromiseFulfilledResult<EnrichedMatch> =>
-          r.status === "fulfilled" && r.value !== null
-        )
-        .map(r => r.value);
+      if (allMatches.length === 0) {
+        enriched = mockEnrichedMatches();
+        usingMock = true;
+      } else {
+        const results = await Promise.allSettled(
+          allMatches.map((m, i) => enrichMatch(m, i, liveIds.has(m.id)))
+        );
+        enriched = results
+          .filter((r): r is PromiseFulfilledResult<EnrichedMatch> =>
+            r.status === "fulfilled" && r.value !== null
+          )
+          .map(r => r.value);
+      }
+    } catch (err) {
+      // API алдаа гарвал mock-руу буцна
+      enriched = mockEnrichedMatches();
+      usingMock = true;
+      console.error("[predictions] PandaScore error:", err);
     }
-  } catch (err) {
-    apiError = err instanceof Error ? err.message : "API алдаа гарлаа";
   }
 
   const accessibleCount = enriched.filter(e => hasAccess(userPlan, e.planReq)).length;
@@ -192,7 +270,15 @@ export default async function PredictionsPage() {
         ))}
       </div>
 
-      {apiError && (
+      {usingMock && (
+        <Card className="border-yellow-500/20 bg-yellow-500/5">
+          <CardContent className="p-3 text-xs text-yellow-400 flex items-center gap-2">
+            ⚠️ Demo горим — жинхэнэ тоглоомуудыг харахын тулд{" "}
+            <span className="font-mono font-bold">PANDASCORE_API_KEY</span> тохируулна уу.
+          </CardContent>
+        </Card>
+      )}
+      {apiError && !usingMock && (
         <Card className="border-red-500/20 bg-red-500/5">
           <CardContent className="p-4 text-sm text-red-400">{apiError}</CardContent>
         </Card>

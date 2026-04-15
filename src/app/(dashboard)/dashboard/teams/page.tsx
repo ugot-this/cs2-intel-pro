@@ -3,11 +3,13 @@ import { requireAuth } from "@/lib/auth-helpers";
 import {
   getTopTeams,
   getTeamRecentMatches,
+  hasPandaScoreKey,
   computeWinRate,
   computeRecentForm,
   regionFromLocation,
   type PSTeam,
 } from "@/lib/pandascore";
+import { TEAMS } from "@/lib/cs2-data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown } from "lucide-react";
@@ -60,21 +62,52 @@ async function enrichTeam(team: PSTeam): Promise<EnrichedTeam> {
   }
 }
 
+function mockTeams(): EnrichedTeam[] {
+  return [...TEAMS]
+    .sort((a, b) => b.rating - a.rating)
+    .map(t => ({
+      team: {
+        id: t.id.charCodeAt(0),
+        name: t.name,
+        acronym: t.tag,
+        image_url: null,
+        location: t.region === "CIS" ? "UA" : t.region === "NA" ? "US" : t.region === "APAC" ? "KR" : "DE",
+        players: t.players.map((p, i) => ({
+          id: i,
+          name: p,
+          first_name: null,
+          last_name: null,
+          nationality: null,
+          image_url: null,
+        })),
+      },
+      winRate: t.winRate,
+      recentForm: t.recentForm,
+      region: t.region,
+    }));
+}
+
 export default async function TeamsPage() {
   await requireAuth();
 
   let teams: EnrichedTeam[] = [];
-  let apiError: string | null = null;
+  let usingMock = false;
 
-  try {
-    const rawTeams = await getTopTeams(20);
-    const results = await Promise.allSettled(rawTeams.map(enrichTeam));
-    teams = results
-      .filter((r): r is PromiseFulfilledResult<EnrichedTeam> => r.status === "fulfilled")
-      .map(r => r.value)
-      .sort((a, b) => b.winRate - a.winRate);
-  } catch (err) {
-    apiError = err instanceof Error ? err.message : "API алдаа гарлаа";
+  if (!hasPandaScoreKey()) {
+    teams = mockTeams();
+    usingMock = true;
+  } else {
+    try {
+      const rawTeams = await getTopTeams(20);
+      const results = await Promise.allSettled(rawTeams.map(enrichTeam));
+      teams = results
+        .filter((r): r is PromiseFulfilledResult<EnrichedTeam> => r.status === "fulfilled")
+        .map(r => r.value)
+        .sort((a, b) => b.winRate - a.winRate);
+    } catch {
+      teams = mockTeams();
+      usingMock = true;
+    }
   }
 
   const top3 = teams.slice(0, 3);
@@ -84,13 +117,16 @@ export default async function TeamsPage() {
       <div>
         <h1 className="text-3xl font-bold">Багуудын статистик</h1>
         <p className="text-muted-foreground mt-1">
-          PandaScore дээрх бодит CS2 багуудын мэдээлэл
+          {usingMock ? "Demo өгөгдөл" : "PandaScore бодит мэдээлэл"}
         </p>
       </div>
 
-      {apiError && (
-        <Card className="border-red-500/20 bg-red-500/5">
-          <CardContent className="p-4 text-sm text-red-400">{apiError}</CardContent>
+      {usingMock && (
+        <Card className="border-yellow-500/20 bg-yellow-500/5">
+          <CardContent className="p-3 text-xs text-yellow-400 flex items-center gap-2">
+            ⚠️ Demo горим — жинхэнэ багуудыг харахын тулд{" "}
+            <span className="font-mono font-bold">PANDASCORE_API_KEY</span> тохируулна уу.
+          </CardContent>
         </Card>
       )}
 
@@ -248,7 +284,7 @@ export default async function TeamsPage() {
                     </tr>
                   );
                 })}
-                {teams.length === 0 && !apiError && (
+                {teams.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                       Өгөгдөл ачааллаж байна...

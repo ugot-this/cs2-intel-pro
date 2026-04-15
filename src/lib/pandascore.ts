@@ -89,13 +89,17 @@ export interface PSTeamStats {
 
 // ─── Fetch helper ─────────────────────────────────────────────
 
+export function hasPandaScoreKey(): boolean {
+  return !!process.env.PANDASCORE_API_KEY;
+}
+
 async function get<T>(
   path: string,
   params: Record<string, string> = {},
   revalidate = 300
 ): Promise<T> {
   const key = apiKey();
-  if (!key) throw new Error("PANDASCORE_API_KEY тохируулаагүй байна");
+  if (!key) throw new Error("NO_API_KEY");
 
   const url = new URL(`${BASE}${path}`);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
