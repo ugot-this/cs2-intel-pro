@@ -1,11 +1,11 @@
 /**
  * CS2 rankings and match data
- * Uses hardcoded HLTV top-30 rankings (no external package dependency)
+ * Uses enriched static HLTV top-30 rankings — no external package dependency
  */
 import type { MatchData } from "@/app/(dashboard)/dashboard/predictions/predictions-client";
 import { HLTV_TOP30, UPCOMING_EVENTS } from "@/lib/cs2-rankings";
 
-// Re-export type for consumers that import from here
+// Re-export types for consumers
 export type { HLTVTeam } from "@/lib/cs2-rankings";
 export type { UpcomingEvent as HLTVEvent } from "@/lib/cs2-rankings";
 
@@ -21,18 +21,14 @@ export async function getHLTVUpcomingEvents() {
   return UPCOMING_EVENTS;
 }
 
-// ─── Matches (no live data available — off-week) ───────────────
+// ─── Matches (no live scraping — off-week) ─────────────────────
 
 export async function getHLTVMatches(): Promise<MatchData[]> {
-  // No live match scraping — return empty so callers fall through to ranking matchups
   return [];
 }
 
-// ─── Top team matchups when no live matches ─────────────────────
+// ─── Matchups generated from rankings ──────────────────────────
 
-/**
- * HLTV рейтингийн top баг pair-ээс prediction үүсгэнэ.
- */
 export function generateMatchupsFromRankings(
   teams: Awaited<ReturnType<typeof getHLTVRankings>>,
   count = 10
@@ -45,7 +41,6 @@ export function generateMatchupsFromRankings(
     const tB = top[i * 2 + 1];
     if (!tA || !tB) continue;
 
-    // Rank-аас ялалтын хувь тооцоолно (rank 1 = хамгийн өндөр)
     const scoreA = 1 / tA.rank;
     const scoreB = 1 / tB.rank;
     const total = scoreA + scoreB;
@@ -55,7 +50,6 @@ export function generateMatchupsFromRankings(
 
     const planReq: "free" | "pro" | "vip" = i < 3 ? "free" : i < 7 ? "pro" : "vip";
 
-    // Хуурамч хуваарь — ирэх 7 хоногийн дотор
     const startTime = new Date(
       Date.now() + (i + 1) * 2 * 24 * 3600 * 1000
     ).toISOString();
@@ -66,19 +60,19 @@ export function generateMatchupsFromRankings(
         name: tA.name,
         acronym: tA.name.slice(0, 4).toUpperCase(),
         imageUrl: null,
-        region: "EU",
-        winRate: Math.round(65 - tA.rank * 0.5),
+        region: tA.region,
+        winRate: tA.winRate,
         recentForm: [],
-        players: [],
+        players: tA.players,
       },
       teamB: {
         name: tB.name,
         acronym: tB.name.slice(0, 4).toUpperCase(),
         imageUrl: null,
-        region: "EU",
-        winRate: Math.round(65 - tB.rank * 0.5),
+        region: tB.region,
+        winRate: tB.winRate,
         recentForm: [],
-        players: [],
+        players: tB.players,
       },
       league: "HLTV Ranking Matchup",
       serie: `#${tA.rank} vs #${tB.rank}`,
