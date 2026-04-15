@@ -1,25 +1,12 @@
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/auth-helpers";
 import {
-  getScheduledMatches,
-  getRunningMatches,
-  getTeamRecentMatches,
-  hasPandaScoreKey,
-  formatBO,
-  matchStartTime,
-  computeWinRate,
-  computeRecentForm,
-  predictWinProbability,
-  oddsFromProbability,
-  regionFromLocation,
-  type PSMatch,
-} from "@/lib/pandascore";
-import {
   getHLTVRankings,
   getHLTVUpcomingEvents,
   generateMatchupsFromRankings,
   type HLTVEvent,
 } from "@/lib/hltv-data";
+import { getLiquipediaMatches } from "@/lib/liquipedia";
 import { UPCOMING_MATCHES } from "@/lib/cs2-data";
 import { PredictionsList, type MatchData } from "./predictions-client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -77,99 +64,6 @@ function fromMock(): MatchData[] {
   }));
 }
 
-// ─── PandaScore → MatchData ─────────────────────────────────────
-
-async function enrichMatch(match: PSMatch, index: number): Promise<MatchData | null> {
-  if (match.opponents.length < 2) return null;
-  const tA = match.opponents[0].opponent;
-  const tB = match.opponents[1].opponent;
-
-  const [rA, rB] = await Promise.allSettled([
-    getTeamRecentMatches(tA.id, 10),
-    getTeamRecentMatches(tB.id, 10),
-  ]);
-  const mA = rA.status === "fulfilled" ? rA.value : [];
-  const mB = rB.status === "fulfilled" ? rB.value : [];
-  const wrA = computeWinRate(mA, tA.id);
-  const wrB = computeWinRate(mB, tB.id);
-  const formA = computeRecentForm(mA, tA.id);
-  const formB = computeRecentForm(mB, tB.id);
-  const { teamAWinPct, confidence } = predictWinProbability(wrA, wrB);
-
-  return {
-    id: match.id,
-    teamA: {
-      name: tA.name,
-      acronym: tA.acronym ?? tA.name.slice(0, 4).toUpperCase(),
-      imageUrl: tA.image_url,
-      region: regionFromLocation(tA.location),
-      winRate: wrA,
-      recentForm: formA,
-      players: tA.players.slice(0, 5).map(p => p.name),
-    },
-    teamB: {
-      name: tB.name,
-      acronym: tB.acronym ?? tB.name.slice(0, 4).toUpperCase(),
-      imageUrl: tB.image_url,
-      region: regionFromLocation(tB.location),
-      winRate: wrB,
-      recentForm: formB,
-      players: tB.players.slice(0, 5).map(p => p.name),
-    },
-    league: match.league.name,
-    serie: match.serie.full_name ?? "",
-    startTime: matchStartTime(match),
-    format: formatBO(match.number_of_games),
-    isLive: match.status === "running",
-    planReq: planRequired(index),
-    prediction: {
-      teamAWinPct,
-      teamBWinPct: 100 - teamAWinPct,
-      confidence,
-      winner: teamAWinPct >= 50 ? "teamA" : "teamB",
-      keyFactors: [
-        `${tA.name} сүүлийн тоглоомуудад ${wrA}% ялалтын хувьтай`,
-        `${tB.name} сүүлийн тоглоомуудад ${wrB}% ялалтын хувьтай`,
-        ...(match.number_of_games >= 3
-          ? [`${formatBO(match.number_of_games)} формат — газрын давуу байдал чухал`]
-          : []),
-      ],
-      oddsA: oddsFromProbability(teamAWinPct),
-      oddsB: oddsFromProbability(100 - teamAWinPct),
-    },
-  } satisfies MatchData;
-}
-
-async function fromPandaScore(): Promise<MatchData[]> {
-  // Try running matches + scheduled in the next 14 days in parallel
-  const [scheduled, running] = await Promise.allSettled([
-    getScheduledMatches(14),
-    getRunningMatches(),
-  ]);
-
-  const scheduledList = scheduled.status === "fulfilled" ? scheduled.value : [];
-  const runningList   = running.status === "fulfilled"   ? running.value   : [];
-
-  // Deduplicate: running takes priority
-  const liveIds = new Set(runningList.map(m => m.id));
-  const combined = [
-    ...runningList.slice(0, 5),
-    ...scheduledList.filter(m => !liveIds.has(m.id)).slice(0, 20),
-  ];
-
-  if (combined.length === 0) return [];
-
-  const enriched = await Promise.allSettled(
-    combined.map((match, i) => enrichMatch(match, i))
-  );
-
-  return enriched
-    .filter((r): r is PromiseFulfilledResult<MatchData> =>
-      r.status === "fulfilled" && r.value !== null
-    )
-    .map(r => r.value);
-}
-
 // ─── Upcoming Events panel ─────────────────────────────────────
 
 function UpcomingEventsPanel({ events }: { events: HLTVEvent[] }) {
@@ -209,7 +103,7 @@ export default async function PredictionsPage() {
   const user = await requireAuth();
 
   let matches: MatchData[] = [];
-  let dataSource: "pandascore" | "rankings" | "demo" = "demo";
+  let dataSource: "liquipedia" | "rankings" | "demo" = "demo";
   let upcomingEvents: HLTVEvent[] = [];
 
   // 1. Always load upcoming events for the panel (static, instant)
@@ -217,21 +111,21 @@ export default async function PredictionsPage() {
     upcomingEvents = await getHLTVUpcomingEvents();
   } catch { /* ignore */ }
 
-  // 2. PandaScore — primary real-data source (date-range query)
-  if (hasPandaScoreKey()) {
-    try {
-      matches = await fromPandaScore();
-      if (matches.length > 0) dataSource = "pandascore";
-    } catch (err) {
-      console.error("[predictions] PandaScore error:", err);
+  // 2. Liquipedia — primary real-data source (mirrors HLTV match schedule)
+  try {
+    const liqMatches = await getLiquipediaMatches(14, 25);
+    if (liqMatches.length > 0) {
+      matches = liqMatches;
+      dataSource = "liquipedia";
     }
+  } catch (err) {
+    console.error("[predictions] Liquipedia error:", err);
   }
 
-  // 3. PandaScore empty → HLTV ranking matchups anchored to next event
+  // 3. Liquipedia empty/failed → HLTV ranking matchups anchored to next event
   if (matches.length === 0) {
     try {
       const rankings = await getHLTVRankings();
-      // Use the nearest upcoming event as the date anchor
       const anchor = upcomingEvents.find(e => e.daysUntil >= 0);
       matches = generateMatchupsFromRankings(rankings, 10, anchor);
       dataSource = "rankings";
@@ -255,8 +149,8 @@ export default async function PredictionsPage() {
         <div>
           <h1 className="text-3xl font-bold">Таамаглалууд</h1>
           <p className="text-muted-foreground mt-1">
-            {dataSource === "pandascore"
-              ? "🟢 PandaScore — бодит тоглоомын хуваарь"
+            {dataSource === "liquipedia"
+              ? "🟢 Liquipedia — бодит CS2 тоглоомын хуваарь"
               : dataSource === "rankings"
               ? "🟡 HLTV рейтинг дээр суурилсан симуляц"
               : "⚪ Demo өгөгдөл"}
