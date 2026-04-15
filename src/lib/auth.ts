@@ -54,12 +54,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user }) {
+      // Нэвтрэх үед userId-г token-д хадгалах
       if (user) {
         token.userId = user.id;
       }
 
-      if (user || trigger === "update") {
+      // Бүр JWT refresh хийх үед DB-с шинэ plan татна —
+      // тэгснээр subscription өөрчлөгдөхөд дахин нэвтрэхгүйгээр тусгагдана
+      if (token.userId) {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { id: token.userId as string },
@@ -74,7 +77,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
         } catch (err) {
           console.error("[auth] JWT callback DB error:", err);
-          // DB алдаа гарсан ч нэвтрэлтийг үргэлжлүүлнэ
           if (!token.role) token.role = "USER";
           if (!token.planSlug) token.planSlug = "free" as PlanSlug;
         }
