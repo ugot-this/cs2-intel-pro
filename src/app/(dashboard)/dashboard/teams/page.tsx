@@ -10,6 +10,7 @@ import {
   type PSTeam,
 } from "@/lib/pandascore";
 import { HLTV_TOP30, type HLTVTeam } from "@/lib/cs2-rankings";
+import { TeamLogo } from "./team-logo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, Users } from "lucide-react";
@@ -52,7 +53,10 @@ interface TeamRow {
   id: number;
   name: string;
   acronym: string;
+  /** PandaScore logo (higher res) — overrides logoUrl when available */
   imageUrl: string | null;
+  /** HLTV CDN logo (hardcoded, always available for 29/30 teams) */
+  logoUrl: string | null;
   region: string;
   flag: string;
   players: string[];
@@ -70,6 +74,7 @@ function fromHLTV(teams: HLTVTeam[]): TeamRow[] {
     name: t.name,
     acronym: t.name.slice(0, 4).toUpperCase(),
     imageUrl: null,
+    logoUrl: t.logoUrl,
     region: t.region,
     flag: t.flag,
     players: t.players,
@@ -120,9 +125,9 @@ async function enrichWithPandaScore(rows: TeamRow[]): Promise<TeamRow[]> {
     if (!match) return row;
     return {
       ...row,
-      imageUrl: match.imageUrl ?? row.imageUrl,
+      imageUrl: match.imageUrl ?? row.imageUrl,      // PandaScore logo (higher res)
+      // Keep HLTV logoUrl as fallback, winRate from HLTV ranking
       recentForm: match.recentForm.length > 0 ? match.recentForm : row.recentForm,
-      // Keep HLTV winRate; only override if PandaScore has enough data
       winRate: match.winRate > 0 ? match.winRate : row.winRate,
     };
   });
@@ -177,23 +182,19 @@ export default async function TeamsPage() {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    {/* Logo or letter avatar */}
-                    {team.imageUrl ? (
-                      <img
-                        src={team.imageUrl}
-                        alt={team.name}
-                        className="w-11 h-11 rounded-lg object-contain bg-background p-0.5"
-                      />
-                    ) : (
-                      <div className={cn(
-                        "w-11 h-11 rounded-lg flex items-center justify-center text-sm font-black",
+                    {/* Logo — PandaScore first, then HLTV CDN, then letter fallback */}
+                    <TeamLogo
+                      logoUrl={team.imageUrl ?? team.logoUrl}
+                      name={team.name}
+                      acronym={team.acronym}
+                      size="md"
+                      fallbackClassName={cn(
+                        "rounded-lg font-black",
                         i === 0 ? "bg-yellow-500/20 text-yellow-400" :
                         i === 1 ? "bg-gray-400/20 text-gray-300" :
                         "bg-amber-600/20 text-amber-500"
-                      )}>
-                        {team.acronym.slice(0, 2)}
-                      </div>
-                    )}
+                      )}
+                    />
                     <div>
                       <CardTitle className="text-base leading-tight">{team.name}</CardTitle>
                       <div className="flex items-center gap-1.5 mt-0.5">
@@ -317,17 +318,12 @@ export default async function TeamsPage() {
                       {/* Team name + logo */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
-                          {team.imageUrl ? (
-                            <img
-                              src={team.imageUrl}
-                              alt={team.name}
-                              className="w-7 h-7 rounded object-contain bg-background shrink-0"
-                            />
-                          ) : (
-                            <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                              {team.acronym.slice(0, 2)}
-                            </div>
-                          )}
+                          <TeamLogo
+                            logoUrl={team.imageUrl ?? team.logoUrl}
+                            name={team.name}
+                            acronym={team.acronym}
+                            size="sm"
+                          />
                           <div>
                             <p className="font-semibold leading-tight">{team.name}</p>
                             <p className="text-xs text-muted-foreground">{team.acronym}</p>
