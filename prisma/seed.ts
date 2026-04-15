@@ -73,13 +73,13 @@ async function main() {
     },
   });
 
-  // Give admin a free subscription
+  // Give admin VIP subscription
   await prisma.subscription.upsert({
     where: { userId: adminUser.id },
-    update: {},
+    update: { planId: vipPlan.id, status: "ACTIVE" },
     create: {
       userId: adminUser.id,
-      planId: freePlan.id,
+      planId: vipPlan.id,
       status: "ACTIVE",
       currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
     },
