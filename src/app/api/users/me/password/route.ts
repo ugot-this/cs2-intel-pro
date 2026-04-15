@@ -3,7 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { compare, hash } from "bcryptjs";
 import { prisma } from "@/lib/db";
 
-export async function PUT(req: NextRequest) {
+async function changePassword(req: NextRequest) {
   try {
     const token = await getToken({ req });
     if (!token?.userId) {
@@ -58,3 +58,5 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export { changePassword as PUT, changePassword as PATCH };

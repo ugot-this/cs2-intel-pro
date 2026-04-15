@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function PUT(req: NextRequest) {
+async function updateUser(req: NextRequest) {
   try {
     const token = await getToken({ req });
     if (!token?.userId) {
@@ -65,3 +65,5 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export { updateUser as PUT, updateUser as PATCH };

@@ -57,6 +57,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         });
 
         if (dbUser) {
+          token.name = dbUser.name;
+          token.email = dbUser.email;
           token.role = dbUser.role;
           token.planSlug = (dbUser.subscription?.plan.slug ?? "free") as PlanSlug;
         }

@@ -24,16 +24,19 @@ export async function createFreeSubscription(userId: string): Promise<void> {
   const freePlan = await prisma.subscriptionPlan.findUnique({
     where: { slug: "free" },
   });
-  if (freePlan) {
-    await prisma.subscription.create({
-      data: {
-        userId,
-        planId: freePlan.id,
-        status: "ACTIVE",
-        currentPeriodEnd: new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000),
-      },
-    });
-  }
+  if (!freePlan) return;
+
+  // upsert — давхардсан дуудлагад crash болохоос сэргийлнэ
+  await prisma.subscription.upsert({
+    where: { userId },
+    create: {
+      userId,
+      planId: freePlan.id,
+      status: "ACTIVE",
+      currentPeriodEnd: new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000),
+    },
+    update: {}, // аль хэдийн байвал хөндөхгүй
+  });
 }
 
 export async function getSession(): Promise<SessionUser | null> {

@@ -1,7 +1,8 @@
 import { Resend } from "resend";
 
 let _resend: Resend | null = null;
-function getResend(): Resend {
+function getResend(): Resend | null {
+  if (!process.env.RESEND_API_KEY) return null;
   if (!_resend) {
     _resend = new Resend(process.env.RESEND_API_KEY);
   }
@@ -11,7 +12,9 @@ function getResend(): Resend {
 /** @deprecated use the functions below instead */
 export const resend = {
   get emails() {
-    return getResend().emails;
+    const r = getResend();
+    if (!r) throw new Error("RESEND_API_KEY тохируулаагүй байна");
+    return r.emails;
   },
 };
 
@@ -27,9 +30,12 @@ function escapeHtml(str: string): string {
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "noreply@cs2intelpro.com";
 
 export async function sendPasswordResetEmail(email: string, token: string) {
+  const r = getResend();
+  if (!r) { console.warn("Email skip: RESEND_API_KEY тохируулаагүй"); return; }
+
   const resetUrl = `${process.env.NEXTAUTH_URL}/reset-password/confirm?token=${token}`;
 
-  await resend.emails.send({
+  await r.emails.send({
     from: FROM_EMAIL,
     to: email,
     subject: "Reset your CS2 Intel Pro password",
@@ -47,7 +53,10 @@ export async function sendPasswordResetEmail(email: string, token: string) {
 }
 
 export async function sendWelcomeEmail(email: string, name: string) {
-  await resend.emails.send({
+  const r = getResend();
+  if (!r) { console.warn("Email skip: RESEND_API_KEY тохируулаагүй"); return; }
+
+  await r.emails.send({
     from: FROM_EMAIL,
     to: email,
     subject: "Welcome to CS2 Intel Pro",
@@ -64,7 +73,10 @@ export async function sendWelcomeEmail(email: string, name: string) {
 }
 
 export async function sendContactFormEmail(name: string, email: string, message: string) {
-  await resend.emails.send({
+  const r = getResend();
+  if (!r) { console.warn("Email skip: RESEND_API_KEY тохируулаагүй"); return; }
+
+  await r.emails.send({
     from: FROM_EMAIL,
     to: FROM_EMAIL,
     replyTo: email,
