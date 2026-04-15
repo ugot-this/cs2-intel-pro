@@ -1,127 +1,40 @@
 /**
- * HLTV unofficial API wrapper
- * Rankings болон events ажилладаг, matches Cloudflare-аар хаалттай
+ * CS2 rankings and match data
+ * Uses hardcoded HLTV top-30 rankings (no external package dependency)
  */
-import { HLTV } from "hltv";
 import type { MatchData } from "@/app/(dashboard)/dashboard/predictions/predictions-client";
+import { HLTV_TOP30, UPCOMING_EVENTS } from "@/lib/cs2-rankings";
+
+// Re-export type for consumers that import from here
+export type { HLTVTeam } from "@/lib/cs2-rankings";
+export type { UpcomingEvent as HLTVEvent } from "@/lib/cs2-rankings";
 
 // ─── Team Rankings ─────────────────────────────────────────────
 
-export interface HLTVTeam {
-  rank: number;
-  id: number;
-  name: string;
-  change: number;
-  isNew: boolean;
-}
-
-export async function getHLTVRankings(): Promise<HLTVTeam[]> {
-  const ranking = await HLTV.getTeamRanking();
-  return ranking.slice(0, 30).map((r) => ({
-    rank: r.place,
-    id: r.team.id ?? 0,
-    name: r.team.name,
-    change: r.change ?? 0,
-    isNew: r.isNew ?? false,
-  }));
-}
-
-// ─── Matches ───────────────────────────────────────────────────
-
-export async function getHLTVMatches(): Promise<MatchData[]> {
-  const matches = await HLTV.getMatches();
-  if (!matches.length) return [];
-
-  return matches
-    .filter((m) => m.team1 && m.team2)
-    .slice(0, 20)
-    .map((m, i) => {
-      const wrA = 50 + Math.round(Math.random() * 20 - 10);
-      const wrB = 50 + Math.round(Math.random() * 20 - 10);
-      const total = wrA + wrB;
-      const pctA = Math.round((wrA / total) * 100);
-      const fmt =
-        m.format === "bo1" ? "BO1" : m.format === "bo3" ? "BO3" : m.format === "bo5" ? "BO5" : "BO3";
-
-      const planReq: "free" | "pro" | "vip" = i < 3 ? "free" : i < 7 ? "pro" : "vip";
-
-      return {
-        id: m.id,
-        teamA: {
-          name: m.team1!.name,
-          acronym: m.team1!.name.slice(0, 4).toUpperCase(),
-          imageUrl: null,
-          region: "EU",
-          winRate: wrA,
-          recentForm: [],
-          players: [],
-        },
-        teamB: {
-          name: m.team2!.name,
-          acronym: m.team2!.name.slice(0, 4).toUpperCase(),
-          imageUrl: null,
-          region: "EU",
-          winRate: wrB,
-          recentForm: [],
-          players: [],
-        },
-        league: m.event?.name ?? "HLTV",
-        serie: "",
-        startTime: m.date ? new Date(m.date).toISOString() : new Date().toISOString(),
-        format: fmt,
-        isLive: m.live ?? false,
-        planReq,
-        prediction: {
-          teamAWinPct: pctA,
-          teamBWinPct: 100 - pctA,
-          confidence: Math.min(80, 50 + Math.abs(wrA - wrB)),
-          winner: pctA >= 50 ? "teamA" : "teamB",
-          keyFactors: [
-            `${m.team1!.name} сүүлийн тоглоомуудад ${wrA}% ялалтын хувьтай`,
-            `${m.team2!.name} сүүлийн тоглоомуудад ${wrB}% ялалтын хувьтай`,
-          ],
-          oddsA: Math.round((100 / pctA) * 100) / 100,
-          oddsB: Math.round((100 / (100 - pctA)) * 100) / 100,
-        },
-      } satisfies MatchData;
-    });
+export async function getHLTVRankings() {
+  return HLTV_TOP30;
 }
 
 // ─── Upcoming Events ───────────────────────────────────────────
 
-export interface HLTVEvent {
-  id: number;
-  name: string;
-  dateStart: number;
-  dateEnd: number;
-  daysUntil: number;
+export async function getHLTVUpcomingEvents() {
+  return UPCOMING_EVENTS;
 }
 
-export async function getHLTVUpcomingEvents(): Promise<HLTVEvent[]> {
-  const events = await HLTV.getEvents();
-  const now = Date.now();
-  return events
-    .filter((e) => e.dateStart != null)
-    .map((e) => ({
-      id: e.id,
-      name: e.name,
-      dateStart: e.dateStart!,
-      dateEnd: e.dateEnd ?? e.dateStart!,
-      daysUntil: Math.ceil((e.dateStart! - now) / 86_400_000),
-    }))
-    .filter((e) => e.daysUntil >= 0 && e.daysUntil <= 30)
-    .sort((a, b) => a.daysUntil - b.daysUntil)
-    .slice(0, 8);
+// ─── Matches (no live data available — off-week) ───────────────
+
+export async function getHLTVMatches(): Promise<MatchData[]> {
+  // No live match scraping — return empty so callers fall through to ranking matchups
+  return [];
 }
 
 // ─── Top team matchups when no live matches ─────────────────────
 
 /**
  * HLTV рейтингийн top баг pair-ээс prediction үүсгэнэ.
- * Яг одоо тоглоом байхгүй үед ашиглана.
  */
 export function generateMatchupsFromRankings(
-  teams: HLTVTeam[],
+  teams: Awaited<ReturnType<typeof getHLTVRankings>>,
   count = 10
 ): MatchData[] {
   const top = teams.slice(0, count * 2);
