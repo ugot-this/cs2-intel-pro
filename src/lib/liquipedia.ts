@@ -6,6 +6,7 @@
 
 import type { MatchData } from "@/app/(dashboard)/dashboard/predictions/predictions-client";
 import { HLTV_TOP30 } from "@/lib/cs2-rankings";
+import { runFullPrediction } from "@/lib/cs2-prediction-engine";
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -174,12 +175,31 @@ function toMatchData(lm: LiquipediaMatch, index: number): MatchData {
 
   const rankA = tA.hltvData?.rank ?? null;
   const rankB = tB.hltvData?.rank ?? null;
-  const { pctA, confidence } = predictFromRanks(rankA, rankB);
-
   const winRateA = tA.hltvData?.winRate ?? 50;
   const winRateB = tB.hltvData?.winRate ?? 50;
   const playersA = tA.hltvData?.players ?? [];
   const playersB = tB.hltvData?.players ?? [];
+
+  // Run full AI prediction engine (sync, server-only)
+  let prediction: MatchData["prediction"];
+  try {
+    prediction = runFullPrediction(tA.name, tB.name, lm.format, lm.event);
+  } catch {
+    // Fallback to rank-only if engine errors
+    const { pctA, confidence } = predictFromRanks(rankA, rankB);
+    prediction = {
+      teamAWinPct: pctA,
+      teamBWinPct: 100 - pctA,
+      confidence,
+      winner: pctA >= 50 ? "teamA" : "teamB",
+      keyFactors: [
+        rankA ? `${tA.name} дэлхийн рейтингт #${rankA}-д байна` : `${tA.name} тоглоомд оролцож байна`,
+        rankB ? `${tB.name} дэлхийн рейтингт #${rankB}-д байна` : `${tB.name} тоглоомд оролцож байна`,
+      ],
+      oddsA: Math.round((100 / Math.max(pctA, 1)) * 100) / 100,
+      oddsB: Math.round((100 / Math.max(100 - pctA, 1)) * 100) / 100,
+    };
+  }
 
   return {
     id: lm.timestamp + index,
@@ -207,23 +227,7 @@ function toMatchData(lm: LiquipediaMatch, index: number): MatchData {
     format: lm.format,
     isLive: lm.timestamp < Date.now() + 300_000 && lm.timestamp > Date.now() - 3 * 3600_000,
     planReq: planRequired(index),
-    prediction: {
-      teamAWinPct: pctA,
-      teamBWinPct: 100 - pctA,
-      confidence,
-      winner: pctA >= 50 ? "teamA" : "teamB",
-      keyFactors: [
-        rankA ? `${tA.name} дэлхийн рейтингт #${rankA}-д байна` : `${tA.name} тоглоомд оролцож байна`,
-        rankB ? `${tB.name} дэлхийн рейтингт #${rankB}-д байна` : `${tB.name} тоглоомд оролцож байна`,
-        ...(rankA && rankB
-          ? [Math.abs(rankA - rankB) < 3
-              ? "Тэнцүү тэмцэл болно"
-              : `${rankA < rankB ? tA.name : tB.name} тодорхой давуу байдалтай`]
-          : []),
-      ],
-      oddsA: Math.round((100 / Math.max(pctA, 1)) * 100) / 100,
-      oddsB: Math.round((100 / Math.max(100 - pctA, 1)) * 100) / 100,
-    },
+    prediction,
   };
 }
 
