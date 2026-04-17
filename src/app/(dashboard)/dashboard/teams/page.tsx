@@ -11,9 +11,7 @@ import {
 } from "@/lib/pandascore";
 import { HLTV_TOP30, type HLTVTeam } from "@/lib/cs2-rankings";
 import { TeamLogo } from "./team-logo";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Users } from "lucide-react";
+import { TrendingUp, TrendingDown, Users, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -22,12 +20,12 @@ export const metadata: Metadata = { title: "Teams – CS2 Intel Pro" };
 // ─── Helpers ───────────────────────────────────────────────────
 
 const REGION_COLORS: Record<string, string> = {
-  EU:   "bg-blue-500/10 text-blue-400 border-blue-500/30",
-  NA:   "bg-red-500/10 text-red-400 border-red-500/30",
-  CIS:  "bg-orange-500/10 text-orange-400 border-orange-500/30",
-  APAC: "bg-green-500/10 text-green-400 border-green-500/30",
-  SA:   "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
-  ME:   "bg-purple-500/10 text-purple-400 border-purple-500/30",
+  EU:   "bg-blue-500/10 text-blue-400",
+  NA:   "bg-red-500/10 text-red-400",
+  CIS:  "bg-orange-500/10 text-orange-400",
+  APAC: "bg-green-500/10 text-green-400",
+  SA:   "bg-yellow-500/10 text-yellow-400",
+  ME:   "bg-purple-500/10 text-purple-400",
 };
 
 const FLAG_EMOJI: Record<string, string> = {
@@ -39,23 +37,23 @@ const FLAG_EMOJI: Record<string, string> = {
 function FormBadge({ result }: { result: "W" | "L" }) {
   return (
     <span className={cn(
-      "inline-flex items-center justify-center w-5 h-5 rounded text-xs font-bold",
-      result === "W" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+      "inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-black",
+      result === "W"
+        ? "bg-primary/15 text-primary border border-primary/25"
+        : "bg-red-500/15 text-red-400 border border-red-500/25"
     )}>
       {result}
     </span>
   );
 }
 
-// ─── Unified team model used in this page ─────────────────────
+// ─── Unified team model ─────────────────────────────────────────
 
 interface TeamRow {
   id: number;
   name: string;
   acronym: string;
-  /** PandaScore logo (higher res) — overrides logoUrl when available */
   imageUrl: string | null;
-  /** HLTV CDN logo (hardcoded, always available for 29/30 teams) */
   logoUrl: string | null;
   region: string;
   flag: string;
@@ -66,7 +64,7 @@ interface TeamRow {
   rankChange: number;
 }
 
-// ─── Build team rows from HLTV static data ─────────────────────
+// ─── Build from HLTV static data ───────────────────────────────
 
 function fromHLTV(teams: HLTVTeam[]): TeamRow[] {
   return teams.map(t => ({
@@ -85,7 +83,7 @@ function fromHLTV(teams: HLTVTeam[]): TeamRow[] {
   }));
 }
 
-// ─── Optionally enrich with PandaScore logos + form ────────────
+// ─── Enrich with PandaScore logos + form ───────────────────────
 
 async function enrichWithPandaScore(rows: TeamRow[]): Promise<TeamRow[]> {
   let psTeams: PSTeam[] = [];
@@ -95,7 +93,6 @@ async function enrichWithPandaScore(rows: TeamRow[]): Promise<TeamRow[]> {
     return rows;
   }
 
-  // For each PandaScore team, try to match by name
   const enriched = await Promise.allSettled(
     psTeams.map(async ps => {
       const recent = await getTeamRecentMatches(ps.id, 10).catch(() => []);
@@ -125,24 +122,50 @@ async function enrichWithPandaScore(rows: TeamRow[]): Promise<TeamRow[]> {
     if (!match) return row;
     return {
       ...row,
-      imageUrl: match.imageUrl ?? row.imageUrl,      // PandaScore logo (higher res)
-      // Keep HLTV logoUrl as fallback, winRate from HLTV ranking
+      imageUrl: match.imageUrl ?? row.imageUrl,
       recentForm: match.recentForm.length > 0 ? match.recentForm : row.recentForm,
       winRate: match.winRate > 0 ? match.winRate : row.winRate,
     };
   });
 }
 
-// ─── Page ──────────────────────────────────────────────────────
+// ─── Podium config ──────────────────────────────────────────────
+
+const PODIUM = [
+  {
+    color: "text-yellow-400",
+    border: "border-yellow-400/30",
+    glow: "shadow-[0_0_30px_rgba(234,179,8,0.10)]",
+    bg: "bg-yellow-400/[0.04]",
+    label: "#1",
+    tagClass: "bg-yellow-400/10 text-yellow-400/80",
+  },
+  {
+    color: "text-slate-300",
+    border: "border-slate-400/20",
+    glow: "",
+    bg: "",
+    label: "#2",
+    tagClass: "bg-slate-400/10 text-slate-300/70",
+  },
+  {
+    color: "text-amber-600",
+    border: "border-amber-600/20",
+    glow: "",
+    bg: "bg-amber-600/[0.03]",
+    label: "#3",
+    tagClass: "bg-amber-600/10 text-amber-500/70",
+  },
+];
+
+// ─── Page ───────────────────────────────────────────────────────
 
 export default async function TeamsPage() {
   await requireAuth();
 
-  // Always start from HLTV static data — never empty
   let teams: TeamRow[] = fromHLTV(HLTV_TOP30);
   let hasPanda = false;
 
-  // Optionally enrich with PandaScore logos + recent form
   if (hasPandaScoreKey()) {
     teams = await enrichWithPandaScore(teams);
     hasPanda = true;
@@ -151,251 +174,276 @@ export default async function TeamsPage() {
   const top3 = teams.slice(0, 3);
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
+    <div className="p-6 space-y-6 max-w-6xl">
+
+      {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Багуудын статистик</h1>
-          <p className="text-muted-foreground mt-1">
-            🔴 HLTV Top 30 рейтинг
-            {hasPanda && " · PandaScore logo/form"}
+          <p className="text-[11px] font-black text-primary/60 tracking-[0.2em] uppercase mb-1">
+            World Rankings
+          </p>
+          <h1 className="text-3xl font-black leading-tight">Багуудын статистик</h1>
+          <p className="text-muted-foreground/60 text-sm mt-1">
+            HLTV Top 30 рейтинг{hasPanda && " · PandaScore live data"}
           </p>
         </div>
-        <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs font-black text-primary">
+          <Users className="h-3 w-3" />
           {teams.length} баг
-        </Badge>
+        </span>
       </div>
 
-      {/* Top 3 podium */}
+      {/* ── Top 3 Podium ────────────────────────────────────── */}
       {top3.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {top3.map((team, i) => (
-            <Card
-              key={team.id}
-              className={cn(
-                "bg-card border-border",
-                i === 0 && "border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.12)]",
-                i === 1 && "border-gray-400/30",
-                i === 2 && "border-amber-600/30"
-              )}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {/* Logo — PandaScore first, then HLTV CDN, then letter fallback */}
-                    <TeamLogo
-                      logoUrl={team.imageUrl ?? team.logoUrl}
-                      name={team.name}
-                      acronym={team.acronym}
-                      size="md"
-                      fallbackClassName={cn(
-                        "rounded-lg font-black",
-                        i === 0 ? "bg-yellow-500/20 text-yellow-400" :
-                        i === 1 ? "bg-gray-400/20 text-gray-300" :
-                        "bg-amber-600/20 text-amber-500"
-                      )}
-                    />
-                    <div>
-                      <CardTitle className="text-base leading-tight">{team.name}</CardTitle>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-sm">{FLAG_EMOJI[team.flag] ?? "🌐"}</span>
-                        <Badge
-                          variant="outline"
-                          className={cn("text-xs py-0", REGION_COLORS[team.region] ?? REGION_COLORS.EU)}
-                        >
-                          {team.region}
-                        </Badge>
-                      </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {top3.map((team, i) => {
+            const cfg = PODIUM[i];
+            return (
+              <div
+                key={team.id}
+                className={cn(
+                  "relative rounded-xl border p-5 overflow-hidden",
+                  cfg.border, cfg.bg, cfg.glow
+                )}
+              >
+                {/* Large watermark rank */}
+                <span className={cn(
+                  "absolute -top-2 -right-1 text-[5rem] font-black leading-none opacity-[0.05] select-none pointer-events-none",
+                  cfg.color
+                )}>
+                  {i + 1}
+                </span>
+
+                {/* Top row: podium icon + rank change */}
+                <div className="flex items-center justify-between mb-4">
+                  <div className={cn(
+                    "flex items-center gap-1.5 rounded-lg px-2.5 py-1",
+                    i === 0 ? "bg-yellow-400/10" : i === 1 ? "bg-slate-400/10" : "bg-amber-600/10"
+                  )}>
+                    <Trophy className={cn("w-3.5 h-3.5", cfg.color)} />
+                    <span className={cn("text-xs font-black", cfg.color)}>{cfg.label}</span>
+                  </div>
+                  {team.rankChange !== 0 && (
+                    <span className={cn(
+                      "text-xs font-bold",
+                      team.rankChange > 0 ? "text-green-400" : "text-red-400"
+                    )}>
+                      {team.rankChange > 0 ? `▲ ${team.rankChange}` : `▼ ${Math.abs(team.rankChange)}`}
+                    </span>
+                  )}
+                </div>
+
+                {/* Team identity */}
+                <div className="flex items-center gap-3 mb-4">
+                  <TeamLogo
+                    logoUrl={team.imageUrl ?? team.logoUrl}
+                    name={team.name}
+                    acronym={team.acronym}
+                    size="md"
+                  />
+                  <div className="min-w-0">
+                    <p className="font-black text-base leading-tight truncate">{team.name}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-sm">{FLAG_EMOJI[team.flag] ?? "🌐"}</span>
+                      <span className={cn(
+                        "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded",
+                        REGION_COLORS[team.region] ?? REGION_COLORS.EU
+                      )}>
+                        {team.region}
+                      </span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className={cn(
-                      "text-2xl font-black block",
-                      i === 0 ? "text-yellow-500" : i === 1 ? "text-gray-400" : "text-amber-600"
-                    )}>
-                      #{team.hltvRank}
-                    </span>
-                    {team.rankChange !== 0 && (
-                      <span className={cn(
-                        "text-xs font-medium",
-                        team.rankChange > 0 ? "text-green-400" : "text-red-400"
-                      )}>
-                        {team.rankChange > 0 ? `▲${team.rankChange}` : `▼${Math.abs(team.rankChange)}`}
-                      </span>
-                    )}
-                  </div>
                 </div>
-              </CardHeader>
 
-              <CardContent className="space-y-3">
-                {/* Stats row */}
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Ялалтын хувь</p>
+                {/* Stats mini-grid */}
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div className="rounded-lg bg-background/40 border border-border/30 p-2.5">
+                    <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider mb-1">Ялалт</p>
                     <p className={cn(
-                      "font-bold",
+                      "text-xl font-black tabular-nums leading-none",
                       team.winRate >= 60 ? "text-green-400" :
                       team.winRate >= 50 ? "text-yellow-400" : "text-red-400"
-                    )}>{team.winRate}%</p>
+                    )}>
+                      {team.winRate}%
+                    </p>
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Тоглогчид</p>
-                    <p className="font-bold text-primary">{team.players.length}</p>
+                  <div className="rounded-lg bg-background/40 border border-border/30 p-2.5">
+                    <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider mb-1">Тоглогч</p>
+                    <p className="text-xl font-black text-primary tabular-nums leading-none">
+                      {team.players.length}
+                    </p>
                   </div>
                 </div>
 
-                {/* Players */}
+                {/* Player tags */}
                 {team.players.length > 0 && (
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Тоглогчид</p>
-                    <div className="flex flex-wrap gap-1">
-                      {team.players.map(p => (
-                        <span key={p} className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
-                          {p}
-                        </span>
-                      ))}
-                    </div>
+                  <div className="flex flex-wrap gap-1 mb-3">
+                    {team.players.map(p => (
+                      <span key={p} className={cn("text-[11px] px-1.5 py-0.5 rounded font-semibold", cfg.tagClass)}>
+                        {p}
+                      </span>
+                    ))}
                   </div>
                 )}
 
                 {/* Recent form */}
                 {team.recentForm.length > 0 && (
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1.5">Сүүлийн хэлбэр</p>
-                    <div className="flex gap-1">
-                      {team.recentForm.map((r, idx) => <FormBadge key={idx} result={r} />)}
-                    </div>
+                  <div className="flex items-center gap-0.5">
+                    {team.recentForm.map((r, idx) => <FormBadge key={idx} result={r} />)}
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          ))}
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Full rankings table */}
-      <Card className="bg-card border-border">
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-primary" />
-            <CardTitle className="text-lg">HLTV Top 30 — CS2 багуудын жагсаалт</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-background/40">
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium w-12">#</th>
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium">Баг</th>
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium">Бүс</th>
-                  <th className="text-right px-4 py-3 text-xs text-muted-foreground font-medium">WR%</th>
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium hidden sm:table-cell">Хэлбэр</th>
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium hidden lg:table-cell">Тоглогчид</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {teams.map((team) => {
-                  const wins = team.recentForm.filter(r => r === "W").length;
-                  const trending = wins >= 3;
-                  return (
-                    <tr key={team.id} className="hover:bg-accent/30 transition-colors">
-                      {/* Rank */}
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col items-start">
-                          <span className="font-bold text-foreground">{team.hltvRank}</span>
-                          {team.rankChange !== 0 && (
-                            <span className={cn(
-                              "text-xs font-medium leading-none",
-                              team.rankChange > 0 ? "text-green-400" : "text-red-400"
-                            )}>
-                              {team.rankChange > 0 ? `▲${team.rankChange}` : `▼${Math.abs(team.rankChange)}`}
-                            </span>
-                          )}
-                        </div>
-                      </td>
+      {/* ── Rankings table ──────────────────────────────────── */}
+      <div className="rounded-xl bg-card border border-border/60 overflow-hidden">
 
-                      {/* Team name + logo */}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <TeamLogo
-                            logoUrl={team.imageUrl ?? team.logoUrl}
-                            name={team.name}
-                            acronym={team.acronym}
-                            size="sm"
-                          />
-                          <div>
-                            <p className="font-semibold leading-tight">{team.name}</p>
-                            <p className="text-xs text-muted-foreground">{team.acronym}</p>
-                          </div>
-                        </div>
-                      </td>
+        {/* Table header */}
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-border/50">
+          <Users className="w-4 h-4 text-primary" />
+          <h2 className="text-sm font-black">HLTV Top 30 — CS2 багуудын жагсаалт</h2>
+        </div>
 
-                      {/* Region + flag */}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <span>{FLAG_EMOJI[team.flag] ?? "🌐"}</span>
-                          <Badge
-                            variant="outline"
-                            className={cn("text-xs", REGION_COLORS[team.region] ?? REGION_COLORS.EU)}
-                          >
-                            {team.region}
-                          </Badge>
-                        </div>
-                      </td>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border/40 bg-background/20">
+                <th className="text-left px-5 py-3 text-[10px] text-muted-foreground/40 font-black uppercase tracking-widest w-14">#</th>
+                <th className="text-left px-5 py-3 text-[10px] text-muted-foreground/40 font-black uppercase tracking-widest">Баг</th>
+                <th className="text-left px-5 py-3 text-[10px] text-muted-foreground/40 font-black uppercase tracking-widest">Бүс</th>
+                <th className="text-right px-5 py-3 text-[10px] text-muted-foreground/40 font-black uppercase tracking-widest">WR %</th>
+                <th className="text-left px-5 py-3 text-[10px] text-muted-foreground/40 font-black uppercase tracking-widest hidden sm:table-cell">Хэлбэр</th>
+                <th className="text-left px-5 py-3 text-[10px] text-muted-foreground/40 font-black uppercase tracking-widest hidden lg:table-cell">Тоглогчид</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teams.map((team, idx) => {
+                const wins = team.recentForm.filter(r => r === "W").length;
+                const trending = wins >= 3;
+                const isTop = idx < 3;
 
-                      {/* Win rate */}
-                      <td className="px-4 py-3 text-right">
+                return (
+                  <tr
+                    key={team.id}
+                    className={cn(
+                      "border-b border-border/30 transition-colors group hover:bg-primary/[0.025]",
+                      isTop && "bg-primary/[0.012]"
+                    )}
+                  >
+                    {/* Rank */}
+                    <td className="px-5 py-3.5">
+                      <div className="flex flex-col gap-0.5">
                         <span className={cn(
-                          "font-bold",
-                          team.winRate >= 60 ? "text-green-400" :
-                          team.winRate >= 50 ? "text-yellow-400" : "text-red-400"
+                          "font-black tabular-nums leading-tight",
+                          idx === 0 ? "text-yellow-400 text-lg" :
+                          idx === 1 ? "text-slate-300 text-base" :
+                          idx === 2 ? "text-amber-500 text-base" :
+                          "text-foreground/80 text-sm"
                         )}>
-                          {team.winRate}%
+                          {team.hltvRank}
                         </span>
-                      </td>
-
-                      {/* Recent form */}
-                      <td className="px-4 py-3 hidden sm:table-cell">
-                        <div className="flex items-center gap-1.5">
-                          {team.recentForm.length > 0 ? (
-                            <>
-                              <div className="flex gap-0.5">
-                                {team.recentForm.map((r, idx) => <FormBadge key={idx} result={r} />)}
-                              </div>
-                              {trending
-                                ? <TrendingUp className="w-3.5 h-3.5 text-green-400" />
-                                : <TrendingDown className="w-3.5 h-3.5 text-red-400" />
-                              }
-                            </>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Players */}
-                      <td className="px-4 py-3 hidden lg:table-cell">
-                        {team.players.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {team.players.map(p => (
-                              <span key={p} className="text-xs bg-muted/60 text-muted-foreground px-1.5 py-0.5 rounded">
-                                {p}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
+                        {team.rankChange !== 0 && (
+                          <span className={cn(
+                            "text-[10px] font-bold leading-none",
+                            team.rankChange > 0 ? "text-green-400" : "text-red-400"
+                          )}>
+                            {team.rankChange > 0 ? `▲${team.rankChange}` : `▼${Math.abs(team.rankChange)}`}
+                          </span>
                         )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                      </div>
+                    </td>
+
+                    {/* Team */}
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <TeamLogo
+                          logoUrl={team.imageUrl ?? team.logoUrl}
+                          name={team.name}
+                          acronym={team.acronym}
+                          size="sm"
+                        />
+                        <div>
+                          <p className={cn(
+                            "font-bold leading-tight text-sm",
+                            isTop ? "text-foreground" : "text-foreground/85"
+                          )}>
+                            {team.name}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground/40 font-mono">
+                            {team.acronym}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Region */}
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm leading-none">{FLAG_EMOJI[team.flag] ?? "🌐"}</span>
+                        <span className={cn(
+                          "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded",
+                          REGION_COLORS[team.region] ?? REGION_COLORS.EU
+                        )}>
+                          {team.region}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Win rate */}
+                    <td className="px-5 py-3.5 text-right">
+                      <span className={cn(
+                        "font-black text-sm tabular-nums",
+                        team.winRate >= 60 ? "text-green-400" :
+                        team.winRate >= 50 ? "text-yellow-400" : "text-red-400"
+                      )}>
+                        {team.winRate}%
+                      </span>
+                    </td>
+
+                    {/* Recent form */}
+                    <td className="px-5 py-3.5 hidden sm:table-cell">
+                      {team.recentForm.length > 0 ? (
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex gap-0.5">
+                            {team.recentForm.map((r, i2) => <FormBadge key={i2} result={r} />)}
+                          </div>
+                          {trending
+                            ? <TrendingUp className="w-3 h-3 text-green-400 shrink-0" />
+                            : <TrendingDown className="w-3 h-3 text-red-400 shrink-0" />
+                          }
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/30">—</span>
+                      )}
+                    </td>
+
+                    {/* Players */}
+                    <td className="px-5 py-3.5 hidden lg:table-cell">
+                      {team.players.length > 0 ? (
+                        <div className="flex flex-wrap gap-0.5">
+                          {team.players.map(p => (
+                            <span
+                              key={p}
+                              className="text-[10px] bg-border/30 text-muted-foreground/60 px-1.5 py-0.5 rounded font-medium group-hover:bg-primary/8 group-hover:text-primary/60 transition-colors"
+                            >
+                              {p}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/30">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
